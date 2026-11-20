@@ -26,6 +26,7 @@ continuously.
    SOURCE_GUILD_ID=123456789012345678   # the "main" server
    TARGET_GUILD_ID=987654321098765432   # the preview server
    ENABLE_MESSAGE_CONTENT=false         # true to mirror messages too
+   CLIENT_SECRET=                       # optional: enables #join-server
    ```
 
 4. **Run it**:
@@ -52,6 +53,40 @@ mirror` webhook, so they keep the author's name, avatar and attachments. Edits
 and deletions are replayed onto the mirrored copy. Mentions are sent inert (no
 pings) and messages are split at Discord's 2000-character limit. Without the
 intent, the bot mirrors the server structure only.
+
+## The preview server
+
+The target is renamed **`<source name> Preview`** on startup, and again whenever
+the source server is renamed, so nobody mistakes it for the real one.
+
+Every channel and category there is **read-only**. The bot adds an `@everyone`
+overwrite that keeps *View Channel* (and message history) but denies sending
+messages, creating threads, adding reactions, speaking and requesting to speak.
+The main server's own permissions are kept — only talking is taken away.
+Webhook posts still work, so mirrored messages keep flowing.
+
+### `#join-server`
+
+The bot creates a read-only `#join-server` channel with an embed and a **Join
+<source name>** button. Clicking it opens Discord's OAuth2 screen; once the
+person approves, the bot adds them to the main server, kicks them out of the
+preview, and shows them a "you're in" page.
+
+To enable it:
+
+1. Developer Portal → your app → *OAuth2* → **Redirects** → add
+   `http://localhost:3000/join/callback` (or `<PUBLIC_URL>/join/callback`).
+2. Developer Portal → *OAuth2* → copy the **Client Secret** into `.env` as
+   `CLIENT_SECRET`.
+3. Give the bot **Kick Members** in the preview server and **Create Instant
+   Invite** in the main server.
+4. Restart. Without `CLIENT_SECRET` the channel is not created and the bot says
+   why in the console.
+
+The redirect listener runs inside the bot on `PORT` (default `3000`). If the
+bot runs on another machine, set `PUBLIC_URL` to an address Discord can reach
+and register that callback instead — `http://localhost` only works when the
+person clicking is on the same machine.
 
 ## What is mirrored
 
@@ -81,7 +116,8 @@ safe: existing objects are updated rather than duplicated.
 
 Members and their roles, bans, invites, webhooks you created, bots and
 integrations, threads and their history, stickers, soundboard sounds, boosts,
-audit log, auto-moderation rules, onboarding and scheduled events. Role and
+audit log, auto-moderation rules, onboarding and scheduled events. The
+`#join-server` channel is the bot's own and is not copied from the source. Role and
 channel IDs are never linked, so a rename in the main server is followed only
 because the bot saw the event — renaming while the bot is offline leaves a
 stale channel behind.
@@ -114,6 +150,8 @@ src/lib/planner.js     snapshot diff -> plan (pure)
 src/lib/builder.js     plan -> Discord API calls (startup reconcile)
 src/lib/live.js        change events -> target guild
 src/lib/mirror.js      message mirroring through webhooks
+src/lib/preview.js     preview name and read-only overwrites
+src/lib/join.js        OAuth2 join flow, #join-server channel and embed
 src/lib/messages.js    message splitting and webhook helpers
 src/lib/errors.js      user-facing errors and helpers
 ```

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { PermissionFlagsBits } from "discord.js";
 import { fakeGuild, makeChannel, makeRole, makeSnapshot } from "./fixtures.js";
 import { applyPlan } from "../src/lib/builder.js";
 import { planReplication } from "../src/lib/planner.js";
@@ -27,13 +28,13 @@ function source() {
   });
 }
 
-function run(options = {}) {
+function run(options = {}, applyOptions = {}) {
   const target = fakeGuild();
   const plan = planReplication(source(), makeSnapshot({ id: target.id, name: target.name }), options);
   return applyPlan({
     plan,
     targetGuild: target,
-    options: { delayMs: 0 },
+    options: { delayMs: 0, ...applyOptions },
   }).then((report) => ({ report, plan, target }));
 }
 
@@ -71,16 +72,49 @@ test("remaps role permission overwrites to the newly created roles", async () =>
   const rules = target.createdChannels.find((channel) => channel.name === "rules");
   const admin = target.createdRoles.find((role) => role.name === "Admin");
 
-  assert.deepEqual(rules.payload.permissionOverwrites, [
-    { id: admin.id, allow: 1024n, deny: 0n },
-  ]);
+  const [roleOverwrite, everyoneOverwrite] = rules.payload.permissionOverwrites;
+  assert.deepEqual(roleOverwrite, { id: admin.id, allow: 1024n, deny: 0n });
+  assert.equal(everyoneOverwrite.id, target.id);
+});
+
+test("every channel is read-only for @everyone", async () => {
+  const { target } = await run();
+
+  assert.equal(target.createdChannels.length, 3);
+  for (const channel of target.createdChannels) {
+    const everyone = channel.payload.permissionOverwrites.find(
+      (overwrite) => overwrite.id === target.id,
+    );
+    assert.ok(everyone, `#${channel.name} has an @everyone overwrite`);
+    assert.equal(
+      everyone.allow & PermissionFlagsBits.ViewChannel,
+      PermissionFlagsBits.ViewChannel,
+      `#${channel.name} stays readable`,
+    );
+    assert.ok(
+      everyone.deny & PermissionFlagsBits.SendMessages,
+      `#${channel.name} can't be posted in`,
+    );
+  }
+});
+
+test("read-only channels can be turned off", async () => {
+  const { target } = await run({}, { readOnly: false });
+
+  for (const channel of target.createdChannels) {
+    const everyone = channel.payload.permissionOverwrites.find(
+      (overwrite) => overwrite.id === target.id,
+    );
+    assert.equal(everyone, undefined);
+  }
 });
 
 test("skips member overwrites for people who aren't in the target", async () => {
   const { report, target } = await run();
   const rules = target.createdChannels.find((channel) => channel.name === "rules");
 
-  assert.equal(rules.payload.permissionOverwrites.length, 1);
+  assert.equal(rules.payload.permissionOverwrites.length, 2, "the dropped member leaves only @everyone");
+  assert.equal(rules.payload.permissionOverwrites[1].id, target.id);
   assert.ok(report.warnings.some((warning) => warning.includes("members who aren't")));
 });
 

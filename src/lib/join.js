@@ -1,0 +1,231 @@
+import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ChannelType,
+  EmbedBuilder,
+  PermissionFlagsBits,
+  REST,
+  Routes,
+} from "discord.js";
+
+const API = "https://discord.com/api/v10";
+export const JOIN_CHANNEL_NAME = "join-server";
+
+/** The bot's own application ID, needed for the OAuth2 link. */
+export async function resolveApplicationId(token) {
+  const rest = new REST().setToken(token);
+  const application = await rest.get(Routes.oauth2CurrentApplication());
+  return application.id;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (character) => {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character];
+  });
+}
+
+function page(title, message) {
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{font-family:system-ui,sans-serif;background:#1e1f22;color:#f2f3f5;display:grid;place-items:center;height:100vh;margin:0}
+main{max-width:32rem;padding:2rem;background:#2b2d31;border-radius:12px;text-align:center}h1{font-size:1.4rem}</style>
+</head><body><main><h1>${escapeHtml(title)}</h1><p>${message}</p></main></body></html>`;
+}
+
+/**
+ * OAuth2 "join the real server" flow:
+ * authorise -> identify the user -> add them to the source guild with the
+ * `guilds.join` scope -> hand them to `onJoined` (which removes them from the
+ * preview server).
+ */
+export function createJoinFlow({
+  applicationId,
+  clientSecret,
+  token,
+  sourceId,
+  redirectUri,
+  onJoined,
+}) {
+  const state = randomBytes(16).toString("hex");
+
+  const authorizeUrl = (() => {
+    const url = new URL("https://discord.com/oauth2/authorize");
+    url.searchParams.set("client_id", applicationId);
+    url.searchParams.set("response_type", "code");
+    url.searchParams.set("redirect_uri", redirectUri);
+    url.searchParams.set("scope", "identify guilds.join");
+    url.searchParams.set("state", state);
+    return url.toString();
+  })();
+
+  async function exchangeCode(code) {
+    const body = new URLSearchParams({
+      client_id: applicationId,
+      client_secret: clientSecret,
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+    });
+
+    const response = await fetch(`${API}/oauth2/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    if (!response.ok) throw new Error(`token exchange failed (HTTP ${response.status})`);
+    return response.json();
+  }
+
+  async function identify(accessToken) {
+    const response = await fetch(`${API}/users/@me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) throw new Error(`couldn't read the Discord profile (HTTP ${response.status})`);
+    return response.json();
+  }
+
+  async function addToSource(userId, accessToken) {
+    const response = await fetch(`${API}/guilds/${sourceId}/members/${userId}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bot ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ access_token: accessToken }),
+    });
+    // 204 means added or already there.
+    if (response.status !== 204 && response.status !== 201) {
+      throw new Error(`couldn't add the member to the server (HTTP ${response.status})`);
+    }
+  }
+
+  async function complete({ code, state: received }) {
+    if (received !== state) throw new Error("the authorisation state didn't match");
+
+    const tokens = await exchangeCode(code);
+    const user = await identify(tokens.access_token);
+    await addToSource(user.id, tokens.access_token);
+    await onJoined(user);
+    return user;
+  }
+
+  return { authorizeUrl, complete, state };
+}
+
+/** Listen for the OAuth2 redirect. */
+export function startJoinServer({ flow, port, path = "/join/callback" }) {
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url ?? "/", "http://localhost");
+
+    const send = (status, html) => {
+      response.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
+      response.end(html);
+    };
+
+    if (url.pathname !== path) {
+      send(404, page("Not found", "This address only handles the join redirect."));
+      return;
+    }
+
+    const error = url.searchParams.get("error");
+    if (error) {
+      send(400, page("Join cancelled", "Nothing changed. You can close this tab."));
+      return;
+    }
+
+    const code = url.searchParams.get("code");
+    if (!code) {
+      send(400, page("Missing code", "Discord didn't send an authorisation code."));
+      return;
+    }
+
+    try {
+      const user = await flow.complete({ code, state: url.searchParams.get("state") });
+      send(
+        200,
+        page(
+          "You're in!",
+          `Welcome to the real server, <strong>${escapeHtml(user.global_name ?? user.username)}</strong>. ` +
+            "You can close this tab.",
+        ),
+      );
+    } catch (failure) {
+      console.error("Join flow failed:", failure.message);
+      send(
+        500,
+        page(
+          "That didn't work",
+          "Something went wrong while joining. Ask a server admin to check the bot's console.",
+        ),
+      );
+    }
+  });
+
+  server.listen(port, () => {
+    console.log(`Join redirect listening on http://localhost:${port}${path}`);
+  });
+
+  return server;
+}
+
+/** Create (or update) the read-only #join-server channel with the button. */
+export async function ensureJoinChannel({ guild, client, sourceName, authorizeUrl }) {
+  const existing = [...guild.channels.cache.values()].find(
+    (channel) => channel.name === JOIN_CHANNEL_NAME && channel.type === ChannelType.GuildText,
+  );
+
+  const channel =
+    existing ??
+    (await guild.channels.create({
+      name: JOIN_CHANNEL_NAME,
+      type: ChannelType.GuildText,
+      topic: `Read-only preview of ${sourceName} — use the button to join the real server.`,
+      reason: "Preview join channel",
+    }));
+
+  await channel.permissionOverwrites
+    ?.edit?.(guild.roles?.everyone ?? guild.id, {
+      ViewChannel: true,
+      ReadMessageHistory: true,
+      SendMessages: false,
+      SendMessagesInThreads: false,
+      CreatePublicThreads: false,
+      CreatePrivateThreads: false,
+      AddReactions: false,
+      Speak: false,
+    })
+    .catch(() => {});
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle(`Join ${sourceName}`)
+    .setDescription(
+      `This server is a read-only preview of **${sourceName}**.\n\n` +
+        "Click the button below and approve the Discord prompt. " +
+        "I'll add you to the real server and remove you from this preview automatically.",
+    )
+    .setFooter({ text: "You only need to do this once" });
+
+  const button = new ButtonBuilder()
+    .setStyle(ButtonStyle.Link)
+    .setLabel(`Join ${sourceName}`.slice(0, 80))
+    .setURL(authorizeUrl);
+
+  const payload = {
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(button)],
+  };
+
+  const messages = await channel.messages?.fetch?.({ limit: 50 }).catch(() => null);
+  const posted = messages?.find?.(
+    (message) => message.author?.id === client.user?.id && message.embeds.length > 0,
+  );
+
+  if (posted) await posted.edit(payload);
+  else await channel.send(payload);
+
+  return channel;
+}

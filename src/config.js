@@ -5,11 +5,22 @@ function readBoolean(value, fallback = false) {
   return /^(1|true|yes|on)$/i.test(value.trim());
 }
 
+const port = Number.parseInt(process.env.PORT ?? "3000", 10) || 3000;
+const publicUrl = (process.env.PUBLIC_URL?.trim() || `http://localhost:${port}`).replace(
+  /\/+$/,
+  "",
+);
+
 export const config = {
   token: process.env.DISCORD_TOKEN?.trim() ?? "",
   sourceId: process.env.SOURCE_GUILD_ID?.trim() || null,
   targetId: process.env.TARGET_GUILD_ID?.trim() || null,
   enableMessageContent: readBoolean(process.env.ENABLE_MESSAGE_CONTENT),
+  clientSecret: process.env.CLIENT_SECRET?.trim() || null,
+  port,
+  publicUrl,
+  joinPath: "/join/callback",
+  redirectUri: `${publicUrl}/join/callback`,
 };
 
 export function assertConfig() {

@@ -154,5 +154,5 @@ test("server settings follow the source", async () => {
 
   await live.onGuildUpdate(before, after);
 
-  assert.equal(target.name, "Main 2");
+  assert.equal(target.name, "Main 2 Preview");
 });

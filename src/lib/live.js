@@ -3,6 +3,7 @@ import { buildOverwrites, channelCreatePayload, CHANNEL_SETTING_FIELDS } from ".
 import { describeError } from "./errors.js";
 import { findMirrorChannel, mirrorMessage, webhookPayload } from "./mirror.js";
 import { splitContent } from "./messages.js";
+import { previewName, readOnlyOverwrites } from "./preview.js";
 
 const EMOJI_SLOTS = 50;
 const MAX_EMOJI_BYTES = 256 * 1024;
@@ -17,7 +18,13 @@ const MAX_TRACKED_MESSAGES = 5000;
  * (create, edit, order, delete), emojis, guild settings, and messages
  * (post, edit, delete).
  */
-export function createLiveSync({ sourceId, targetId, client, reason = "Mirroring changes" }) {
+export function createLiveSync({
+  sourceId,
+  targetId,
+  client,
+  reason = "Mirroring changes",
+  readOnly = true,
+}) {
   let source = null;
   let target = null;
 
@@ -66,9 +73,10 @@ export function createLiveSync({ sourceId, targetId, client, reason = "Mirroring
     const entry = snapshotChannel(channel, type);
     const parent = entry.parentId ? channelMap.get(entry.parentId) ?? null : null;
     const overwrites = await buildOverwrites(entry, roleMap, target, memberCache, report);
+    const finalOverwrites = readOnly ? readOnlyOverwrites(overwrites, target.id) : overwrites;
 
     const created = await target.channels.create({
-      ...channelCreatePayload(entry, parent, overwrites),
+      ...channelCreatePayload(entry, parent, finalOverwrites),
       reason,
     });
     channelMap.set(channel.id, created);
@@ -187,7 +195,10 @@ export function createLiveSync({ sourceId, targetId, client, reason = "Mirroring
       if (Object.keys(edits).length > 1) await targetChannel.edit(edits);
       if (typeof targetChannel.permissionOverwrites?.set === "function") {
         const overwrites = await buildOverwrites(entry, roleMap, target, memberCache, report);
-        await targetChannel.permissionOverwrites.set(overwrites, reason);
+        await targetChannel.permissionOverwrites.set(
+          readOnly ? readOnlyOverwrites(overwrites, target.id) : overwrites,
+          reason,
+        );
       }
 
       if (
@@ -297,8 +308,9 @@ export function createLiveSync({ sourceId, targetId, client, reason = "Mirroring
     async onGuildUpdate(oldGuild, newGuild) {
       if (newGuild.id !== sourceId) return;
 
-      if (newGuild.name !== target.name && typeof target.setName === "function") {
-        await target.setName(newGuild.name, reason);
+      const wantedName = previewName(newGuild.name);
+      if (wantedName !== target.name && typeof target.setName === "function") {
+        await target.setName(wantedName, reason);
       }
       if ((newGuild.icon ?? null) !== (target.icon ?? null) && typeof target.setIcon === "function") {
         await target.setIcon(newGuild.iconURL({ extension: "png", size: 256 }), reason);

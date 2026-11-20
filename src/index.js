@@ -1,8 +1,15 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { assertConfig, config } from "./config.js";
 import { applyPlan } from "./lib/builder.js";
+import {
+  createJoinFlow,
+  ensureJoinChannel,
+  resolveApplicationId,
+  startJoinServer,
+} from "./lib/join.js";
 import { createLiveSync } from "./lib/live.js";
 import { planReplication } from "./lib/planner.js";
+import { previewName } from "./lib/preview.js";
 import { snapshotGuild } from "./lib/snapshot.js";
 
 try {
@@ -28,6 +35,7 @@ const live = createLiveSync({
 // Nothing is mirrored until the startup sync has run, so half-built servers
 // can't be edited by events that arrive while it is still working.
 let liveReady = false;
+let joinServer = null;
 
 function on(event, label, run) {
   client.on(event, (...args) => {
@@ -70,6 +78,39 @@ async function resolveGuild(id) {
   return client.guilds.cache.get(id) ?? (await client.guilds.fetch(id).catch(() => null));
 }
 
+/** The "join the real server" button only works when OAuth2 is configured. */
+async function setUpJoinFlow(source, target, readyClient) {
+  if (!config.clientSecret) {
+    console.warn(
+      "CLIENT_SECRET is not set, so #join-server was not created. Add it (with the callback " +
+        `${config.redirectUri} in the Developer Portal) to let people join the real server.`,
+    );
+    return;
+  }
+
+  const applicationId = await resolveApplicationId(config.token);
+  const flow = createJoinFlow({
+    applicationId,
+    clientSecret: config.clientSecret,
+    token: config.token,
+    sourceId: source.id,
+    redirectUri: config.redirectUri,
+    onJoined: async (user) => {
+      await target.members.kick(user.id, "Joined the real server");
+      console.log(`Moved ${user.username} from the preview into ${source.name}.`);
+    },
+  });
+
+  await ensureJoinChannel({
+    guild: target,
+    client: readyClient,
+    sourceName: source.name,
+    authorizeUrl: flow.authorizeUrl,
+  });
+
+  joinServer = startJoinServer({ flow, port: config.port, path: config.joinPath });
+}
+
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Logged in as ${readyClient.user.tag}.`);
 
@@ -85,11 +126,14 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 
   const plan = planReplication(snapshotGuild(source), snapshotGuild(target));
+  // The preview is named after the source, not an exact copy of the name.
+  plan.settings = plan.settings.filter((setting) => setting.key !== "name");
+
   const report = await applyPlan({
     plan,
     sourceGuild: source,
     targetGuild: target,
-    options: { reason: "Server mirroring" },
+    options: { reason: "Server mirroring", readOnly: true },
   });
 
   console.log(
@@ -97,6 +141,13 @@ client.once(Events.ClientReady, async (readyClient) => {
       `${report.emojisCreated} emoji(s), ${report.settingsApplied} setting(s) applied.`,
   );
   for (const error of report.errors) console.error(`  ! ${error}`);
+
+  const wantedName = previewName(source.name);
+  if (target.name !== wantedName && typeof target.setName === "function") {
+    await target.setName(wantedName, "Preview server name").catch((error) => {
+      console.error("Could not rename the preview server:", error.message);
+    });
+  }
 
   await live.attach(source, target);
   liveReady = true;
@@ -108,6 +159,12 @@ client.once(Events.ClientReady, async (readyClient) => {
     );
   }
 
+  try {
+    await setUpJoinFlow(source, target, readyClient);
+  } catch (error) {
+    console.error("Join flow disabled:", error.message);
+  }
+
   console.log(`Mirroring ${source.name} (${source.id}) -> ${target.name} (${target.id}) live.`);
 });
 
@@ -116,6 +173,7 @@ process.on("unhandledRejection", (error) => {
 });
 
 process.on("SIGINT", () => {
+  joinServer?.close();
   client.destroy();
   process.exit(0);
 });

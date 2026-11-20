@@ -1,6 +1,7 @@
 import { CHANNEL_TYPE_IDS } from "./snapshot.js";
 import { describeError, sleep } from "./errors.js";
 import { copyChannelMessages } from "./messages.js";
+import { readOnlyOverwrites } from "./preview.js";
 
 export const CHANNEL_SETTING_FIELDS = [
   "topic",
@@ -209,6 +210,12 @@ export async function applyPlan({
 }) {
   const reason = options.reason ?? "Server replication";
   const delayMs = options.delayMs ?? 300;
+  const readOnly = options.readOnly ?? true;
+
+  // A preview server is for looking, not talking: every channel gets an
+  // @everyone overwrite that keeps it readable but silent.
+  const finalOverwrites = (overwrites) =>
+    readOnly ? readOnlyOverwrites(overwrites, targetGuild.id) : overwrites;
 
   const report = {
     rolesCreated: 0,
@@ -284,7 +291,9 @@ export async function applyPlan({
   // Categories, then their children.
   for (const entry of plan.categories) {
     addStep(`category “${entry.name}”`, async () => {
-      const overwrites = await buildOverwrites(entry, roleMap, targetGuild, memberCache, report);
+      const overwrites = finalOverwrites(
+        await buildOverwrites(entry, roleMap, targetGuild, memberCache, report),
+      );
 
       if (entry.action === "reuse") {
         const channel = await resolveChannel(targetGuild, entry.targetId);
@@ -308,7 +317,9 @@ export async function applyPlan({
   for (const entry of plan.channels) {
     addStep(`#${entry.name}`, async () => {
       const parent = entry.parentSourceId ? channelMap.get(entry.parentSourceId) ?? null : null;
-      const overwrites = await buildOverwrites(entry, roleMap, targetGuild, memberCache, report);
+      const overwrites = finalOverwrites(
+        await buildOverwrites(entry, roleMap, targetGuild, memberCache, report),
+      );
 
       if (entry.action === "reuse") {
         const channel = await resolveChannel(targetGuild, entry.targetId);
