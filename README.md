@@ -4,8 +4,10 @@ A Discord bot that keeps a **preview server** in step with a **main server**.
 It copies everything that exists when it starts, then mirrors every change as it
 happens — channels, roles, permissions, emojis, server settings and messages.
 
-There are no commands: the two servers are set in `.env`, and the bot runs
-continuously.
+The same bot is also a moderation bot for the main server: `/ban`, `/kick`,
+`/timeout`, `/warn`, `/purge`, `/lock` and friends. Mirroring needs no commands —
+the two servers come from `.env` — but moderation is done with slash commands,
+which the bot registers in the main server when it starts.
 
 ## Setup
 
@@ -28,6 +30,8 @@ continuously.
    ENABLE_MESSAGE_CONTENT=false         # true to mirror messages too
    CLIENT_SECRET=                       # optional: enables #join-server
    PUBLIC_URLS=https://45tapl8dqb.apps.bot-hosting.cloud,https://limey-discord.apps.bot-hosting.cloud
+   MOD_LOG_CHANNEL_ID=                  # optional: where moderation cases are posted
+   CASES_FILE=data/moderation.json      # optional: where warnings are stored
    ```
 
 4. **Run it**:
@@ -104,6 +108,42 @@ is used as a fallback): the redirect listener runs inside the same process and
 answers all of them. Point both
 DNS/proxy hostnames at it rather than running two bots.
 
+## Moderation
+
+The bot registers these in the **main** server on startup (no separate script),
+and they only work there — the preview is read-only and staff actions belong on
+the real server:
+
+| Command | What it does | Needs |
+| --- | --- | --- |
+| `/ban member [reason] [delete_days]` | Bans, optionally wiping up to 7 days of their messages | Ban Members |
+| `/unban user_id [reason]` | Lifts a ban by user ID | Ban Members |
+| `/kick member [reason]` | Kicks | Kick Members |
+| `/timeout member duration [reason]` | Times someone out (`10m`, `2h`, `1d`, max 28d) | Moderate Members |
+| `/untimeout member [reason]` | Ends a timeout early | Moderate Members |
+| `/warn member reason` | Adds a warning to their record | Moderate Members |
+| `/warnings member` | Lists their warnings | Moderate Members |
+| `/clearwarnings member` | Deletes their warnings | Moderate Members |
+| `/case id` | Shows one case | Moderate Members |
+| `/purge amount [member]` | Deletes up to 100 recent messages (not older than 14 days) | Manage Messages |
+| `/slowmode seconds [channel]` | Sets slowmode, `0` turns it off | Manage Channels |
+| `/lock [channel] [reason]` | Stops `@everyone` talking in a channel | Manage Channels |
+| `/unlock [channel] [reason]` | Undoes a lock | Manage Channels |
+
+Replies are private to the moderator. Ban, kick, timeout, warn and the rest are
+stored as numbered cases in `CASES_FILE` (`data/moderation.json` by default), so
+warnings and case numbers survive restarts. Each case is also posted as an embed
+to `MOD_LOG_CHANNEL_ID`, or to a channel named `#mod-logs` if that exists — no
+log channel is required.
+
+The bot checks rank before acting: it won't let you moderate yourself, the server
+owner, or someone whose top role is equal to or above yours, and it says so when
+its own role is too low to act.
+
+Two permissions in the Developer Portal matter here: the invite link needs the
+`applications.commands` scope (the default bot invite includes it), and the bot
+needs *Moderate Members* in addition to the mirroring permissions above.
+
 ## What is mirrored
 
 When it starts:
@@ -152,7 +192,7 @@ stale channel behind.
 ## Development
 
 ```bash
-npm test      # node:test suite for the snapshot reader, planner, executor, mirror and live sync
+npm test      # node:test suite for the snapshot reader, planner, executor, mirror, live sync and moderation
 npm run dev   # restart on file changes
 ```
 
@@ -168,6 +208,9 @@ src/lib/live.js        change events -> target guild
 src/lib/mirror.js      message mirroring through webhooks
 src/lib/preview.js     preview name and read-only overwrites
 src/lib/join.js        OAuth2 join flow, #join-server channel and embed
+src/lib/moderation.js  moderation commands, rank checks and case logging
+src/lib/cases.js       JSON-backed case/warning store
+src/lib/duration.js    timeout duration parsing and formatting
 src/lib/messages.js    message splitting and webhook helpers
 src/lib/errors.js      user-facing errors and helpers
 ```

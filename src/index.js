@@ -1,6 +1,7 @@
-import { Client, Events, GatewayIntentBits } from "discord.js";
+import { Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
 import { assertConfig, config } from "./config.js";
 import { applyPlan } from "./lib/builder.js";
+import { createCaseStore } from "./lib/cases.js";
 import {
   createJoinFlow,
   ensureJoinChannel,
@@ -8,6 +9,7 @@ import {
   startJoinServer,
 } from "./lib/join.js";
 import { createLiveSync } from "./lib/live.js";
+import { MOD_COMMANDS, runModerationCommand } from "./lib/moderation.js";
 import { planReplication } from "./lib/planner.js";
 import { previewName } from "./lib/preview.js";
 import { snapshotGuild } from "./lib/snapshot.js";
@@ -30,6 +32,29 @@ const live = createLiveSync({
   targetId: config.targetId,
   client,
   reason: "Server mirroring",
+});
+
+// Warnings and case numbers live on disk so they survive restarts.
+const cases = createCaseStore({ file: config.casesFile });
+
+// Moderation belongs to the real server; the preview is read-only anyway.
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.guildId !== config.sourceId) {
+    await interaction
+      .reply({
+        content: "Moderation commands only work in the main server.",
+        flags: MessageFlags.Ephemeral,
+      })
+      .catch(() => {});
+    return;
+  }
+
+  await runModerationCommand(interaction, {
+    cases,
+    logChannelId: config.modLogChannelId,
+  });
 });
 
 // Nothing is mirrored until the startup sync has run, so half-built servers
@@ -147,6 +172,13 @@ client.once(Events.ClientReady, async (readyClient) => {
     await target.setName(wantedName, "Preview server name").catch((error) => {
       console.error("Could not rename the preview server:", error.message);
     });
+  }
+
+  try {
+    await source.commands.set(MOD_COMMANDS.map((command) => command.toJSON()));
+    console.log(`Registered ${MOD_COMMANDS.length} moderation command(s) in ${source.name}.`);
+  } catch (error) {
+    console.error("Could not register the moderation commands:", error.message);
   }
 
   await live.attach(source, target);

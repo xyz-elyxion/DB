@@ -25,6 +25,8 @@ export const config = {
   targetId: process.env.TARGET_GUILD_ID?.trim() || null,
   enableMessageContent: readBoolean(process.env.ENABLE_MESSAGE_CONTENT),
   clientSecret: process.env.CLIENT_SECRET?.trim() || null,
+  modLogChannelId: process.env.MOD_LOG_CHANNEL_ID?.trim() || null,
+  casesFile: process.env.CASES_FILE?.trim() || "data/moderation.json",
   port,
   publicUrls,
   joinPath: "/join/callback",
