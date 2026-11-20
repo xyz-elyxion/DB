@@ -99,8 +99,9 @@ To enable it:
 5. Restart. Without `CLIENT_SECRET` the channel is not created and the bot says
    why in the console.
 
-Every domain has to reach the bot's `PORT` (default `3000`): the redirect
-listener runs inside the same process and answers all of them. Point both
+Every domain has to reach the bot's `SERVER_PORT` (default `3000`; plain `PORT`
+is used as a fallback): the redirect listener runs inside the same process and
+answers all of them. Point both
 DNS/proxy hostnames at it rather than running two bots.
 
 ## What is mirrored

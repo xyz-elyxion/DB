@@ -5,7 +5,8 @@ function readBoolean(value, fallback = false) {
   return /^(1|true|yes|on)$/i.test(value.trim());
 }
 
-const port = Number.parseInt(process.env.PORT ?? "3000", 10) || 3000;
+const port =
+  Number.parseInt(process.env.SERVER_PORT ?? process.env.PORT ?? "3000", 10) || 3000;
 
 // PUBLIC_URLS holds every domain the bot answers on (comma or space separated).
 // PUBLIC_URL is still accepted for a single domain.
