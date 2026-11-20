@@ -73,6 +73,27 @@ through a temporary webhook, keeping each author's display name and avatar.
 Mentions are sent inert (no pings), and messages with no text and no attachments
 are skipped. Without the intent, `/clone` still copies the structure.
 
+### Live mirroring (optional)
+
+`/clone` copies what already exists. To keep the preview server up to date as
+people talk, give the bot both server IDs in `.env`:
+
+```bash
+SOURCE_GUILD_ID=123456789012345678   # the "main" server people type in
+TARGET_GUILD_ID=987654321098765432   # the preview server
+```
+
+With `ENABLE_MESSAGE_CONTENT=true` and `npm start`, every new message in the
+source server is reposted in the target channel with the same name and type —
+through a `Server mirror` webhook, so it keeps the author's name, avatar and
+attachments. Channel names are the link between the two servers: a message in a
+channel the target doesn't have is skipped with a note in the console, and voice
+channels are never mirrored.
+
+Not mirrored: bots and webhook messages, system notes, threads, reactions,
+edits and deletions. Mirroring is one-way (source → target); nothing is sent
+back.
+
 ## What is and isn't copied
 
 Copied:

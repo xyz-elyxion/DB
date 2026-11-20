@@ -10,6 +10,10 @@ export const config = {
   clientId: process.env.CLIENT_ID?.trim() || null,
   devGuildId: process.env.GUILD_ID?.trim() || null,
   enableMessageContent: readBoolean(process.env.ENABLE_MESSAGE_CONTENT),
+  mirror: {
+    sourceId: process.env.SOURCE_GUILD_ID?.trim() || null,
+    targetId: process.env.TARGET_GUILD_ID?.trim() || null,
+  },
 };
 
 export function assertConfig() {
