@@ -6,13 +6,13 @@ import {
   ButtonStyle,
   ChannelType,
   EmbedBuilder,
-  PermissionFlagsBits,
   REST,
   Routes,
 } from "discord.js";
 
 const API = "https://discord.com/api/v10";
 export const JOIN_CHANNEL_NAME = "join-server";
+const MAX_BUTTONS = 5;
 
 /** The bot's own application ID, needed for the OAuth2 link. */
 export async function resolveApplicationId(token) {
@@ -35,23 +35,41 @@ main{max-width:32rem;padding:2rem;background:#2b2d31;border-radius:12px;text-ali
 </head><body><main><h1>${escapeHtml(title)}</h1><p>${message}</p></main></body></html>`;
 }
 
+function hostOf(redirectUri) {
+  try {
+    return new URL(redirectUri).host;
+  } catch {
+    return redirectUri;
+  }
+}
+
 /**
  * OAuth2 "join the real server" flow:
  * authorise -> identify the user -> add them to the source guild with the
  * `guilds.join` scope -> hand them to `onJoined` (which removes them from the
  * preview server).
+ *
+ * Every redirect URI gets its own link and its own `state`, because Discord
+ * requires the same `redirect_uri` on the authorize step and the token
+ * exchange. That is what lets several public domains serve the same bot.
  */
 export function createJoinFlow({
   applicationId,
   clientSecret,
   token,
   sourceId,
-  redirectUri,
+  redirectUris,
   onJoined,
 }) {
-  const state = randomBytes(16).toString("hex");
+  const uris = [...new Set(redirectUris ?? [])].filter(Boolean);
+  if (uris.length === 0) throw new Error("no redirect URI configured");
 
-  const authorizeUrl = (() => {
+  const redirectByState = new Map(); // state -> redirect URI
+
+  function authorizeUrlFor(redirectUri) {
+    const state = randomBytes(16).toString("hex");
+    redirectByState.set(state, redirectUri);
+
     const url = new URL("https://discord.com/oauth2/authorize");
     url.searchParams.set("client_id", applicationId);
     url.searchParams.set("response_type", "code");
@@ -59,9 +77,15 @@ export function createJoinFlow({
     url.searchParams.set("scope", "identify guilds.join");
     url.searchParams.set("state", state);
     return url.toString();
-  })();
+  }
 
-  async function exchangeCode(code) {
+  const authorizeUrls = uris.map((redirectUri) => ({
+    redirectUri,
+    host: hostOf(redirectUri),
+    url: authorizeUrlFor(redirectUri),
+  }));
+
+  async function exchangeCode(code, redirectUri) {
     const body = new URLSearchParams({
       client_id: applicationId,
       client_secret: clientSecret,
@@ -96,23 +120,24 @@ export function createJoinFlow({
       },
       body: JSON.stringify({ access_token: accessToken }),
     });
-    // 204 means added or already there.
+    // 201 means added, 204 means they were already there.
     if (response.status !== 204 && response.status !== 201) {
       throw new Error(`couldn't add the member to the server (HTTP ${response.status})`);
     }
   }
 
   async function complete({ code, state: received }) {
-    if (received !== state) throw new Error("the authorisation state didn't match");
+    const redirectUri = redirectByState.get(received);
+    if (!redirectUri) throw new Error("the authorisation state didn't match any known link");
 
-    const tokens = await exchangeCode(code);
+    const tokens = await exchangeCode(code, redirectUri);
     const user = await identify(tokens.access_token);
     await addToSource(user.id, tokens.access_token);
     await onJoined(user);
     return user;
   }
 
-  return { authorizeUrl, complete, state };
+  return { authorizeUrls, complete };
 }
 
 /** Listen for the OAuth2 redirect. */
@@ -171,8 +196,8 @@ export function startJoinServer({ flow, port, path = "/join/callback" }) {
   return server;
 }
 
-/** Create (or update) the read-only #join-server channel with the button. */
-export async function ensureJoinChannel({ guild, client, sourceName, authorizeUrl }) {
+/** Create (or update) the read-only #join-server channel with the buttons. */
+export async function ensureJoinChannel({ guild, client, sourceName, links }) {
   const existing = [...guild.channels.cache.values()].find(
     (channel) => channel.name === JOIN_CHANNEL_NAME && channel.type === ChannelType.GuildText,
   );
@@ -209,14 +234,19 @@ export async function ensureJoinChannel({ guild, client, sourceName, authorizeUr
     )
     .setFooter({ text: "You only need to do this once" });
 
-  const button = new ButtonBuilder()
-    .setStyle(ButtonStyle.Link)
-    .setLabel(`Join ${sourceName}`.slice(0, 80))
-    .setURL(authorizeUrl);
+  const buttons = links.slice(0, MAX_BUTTONS).map((link, index) =>
+    new ButtonBuilder()
+      .setStyle(ButtonStyle.Link)
+      .setLabel(
+        (index === 0 ? `Join ${sourceName}` : `Join via ${link.host ?? hostOf(link.redirectUri)}`)
+          .slice(0, 80),
+      )
+      .setURL(link.url),
+  );
 
   const payload = {
     embeds: [embed],
-    components: [new ActionRowBuilder().addComponents(button)],
+    components: [new ActionRowBuilder().addComponents(...buttons)],
   };
 
   const messages = await channel.messages?.fetch?.({ limit: 50 }).catch(() => null);

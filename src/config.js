@@ -6,10 +6,17 @@ function readBoolean(value, fallback = false) {
 }
 
 const port = Number.parseInt(process.env.PORT ?? "3000", 10) || 3000;
-const publicUrl = (process.env.PUBLIC_URL?.trim() || `http://localhost:${port}`).replace(
-  /\/+$/,
-  "",
-);
+
+// PUBLIC_URLS holds every domain the bot answers on (comma or space separated).
+// PUBLIC_URL is still accepted for a single domain.
+const publicUrls = (
+  process.env.PUBLIC_URLS?.trim() ||
+  process.env.PUBLIC_URL?.trim() ||
+  `http://localhost:${port}`
+)
+  .split(/[,\s]+/)
+  .map((url) => url.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
 
 export const config = {
   token: process.env.DISCORD_TOKEN?.trim() ?? "",
@@ -18,9 +25,9 @@ export const config = {
   enableMessageContent: readBoolean(process.env.ENABLE_MESSAGE_CONTENT),
   clientSecret: process.env.CLIENT_SECRET?.trim() || null,
   port,
-  publicUrl,
+  publicUrls,
   joinPath: "/join/callback",
-  redirectUri: `${publicUrl}/join/callback`,
+  redirectUris: publicUrls.map((url) => `${url}/join/callback`),
 };
 
 export function assertConfig() {

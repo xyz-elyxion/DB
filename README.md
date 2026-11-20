@@ -27,6 +27,7 @@ continuously.
    TARGET_GUILD_ID=987654321098765432   # the preview server
    ENABLE_MESSAGE_CONTENT=false         # true to mirror messages too
    CLIENT_SECRET=                       # optional: enables #join-server
+   PUBLIC_URLS=https://45tapl8dqb.apps.bot-hosting.cloud,https://limey-discord.apps.bot-hosting.cloud
    ```
 
 4. **Run it**:
@@ -74,19 +75,33 @@ preview, and shows them a "you're in" page.
 
 To enable it:
 
-1. Developer Portal → your app → *OAuth2* → **Redirects** → add
-   `http://localhost:3000/join/callback` (or `<PUBLIC_URL>/join/callback`).
-2. Developer Portal → *OAuth2* → copy the **Client Secret** into `.env` as
+1. Developer Portal → your app → *OAuth2* → **Redirects** → add one entry per
+   domain, each ending in `/join/callback`:
+
+   ```
+   https://45tapl8dqb.apps.bot-hosting.cloud/join/callback
+   https://limey-discord.apps.bot-hosting.cloud/join/callback
+   ```
+
+2. List the same domains in `.env`:
+
+   ```bash
+   PUBLIC_URLS=https://45tapl8dqb.apps.bot-hosting.cloud,https://limey-discord.apps.bot-hosting.cloud
+   ```
+
+   Each domain gets its own button in `#join-server` and its own OAuth `state`,
+   so either one works for anyone. Separate them with commas or spaces — up to
+   five. A single domain can also be given as `PUBLIC_URL`.
+3. Developer Portal → *OAuth2* → copy the **Client Secret** into `.env` as
    `CLIENT_SECRET`.
-3. Give the bot **Kick Members** in the preview server and **Create Instant
+4. Give the bot **Kick Members** in the preview server and **Create Instant
    Invite** in the main server.
-4. Restart. Without `CLIENT_SECRET` the channel is not created and the bot says
+5. Restart. Without `CLIENT_SECRET` the channel is not created and the bot says
    why in the console.
 
-The redirect listener runs inside the bot on `PORT` (default `3000`). If the
-bot runs on another machine, set `PUBLIC_URL` to an address Discord can reach
-and register that callback instead — `http://localhost` only works when the
-person clicking is on the same machine.
+Every domain has to reach the bot's `PORT` (default `3000`): the redirect
+listener runs inside the same process and answers all of them. Point both
+DNS/proxy hostnames at it rather than running two bots.
 
 ## What is mirrored
 

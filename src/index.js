@@ -82,8 +82,8 @@ async function resolveGuild(id) {
 async function setUpJoinFlow(source, target, readyClient) {
   if (!config.clientSecret) {
     console.warn(
-      "CLIENT_SECRET is not set, so #join-server was not created. Add it (with the callback " +
-        `${config.redirectUri} in the Developer Portal) to let people join the real server.`,
+      "CLIENT_SECRET is not set, so #join-server was not created. Add it (with the callback(s) " +
+        `${config.redirectUris.join(" and ")} in the Developer Portal) to let people join the real server.`,
     );
     return;
   }
@@ -94,7 +94,7 @@ async function setUpJoinFlow(source, target, readyClient) {
     clientSecret: config.clientSecret,
     token: config.token,
     sourceId: source.id,
-    redirectUri: config.redirectUri,
+    redirectUris: config.redirectUris,
     onJoined: async (user) => {
       await target.members.kick(user.id, "Joined the real server");
       console.log(`Moved ${user.username} from the preview into ${source.name}.`);
@@ -105,7 +105,7 @@ async function setUpJoinFlow(source, target, readyClient) {
     guild: target,
     client: readyClient,
     sourceName: source.name,
-    authorizeUrl: flow.authorizeUrl,
+    links: flow.authorizeUrls,
   });
 
   joinServer = startJoinServer({ flow, port: config.port, path: config.joinPath });
