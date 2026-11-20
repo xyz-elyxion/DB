@@ -1,6 +1,7 @@
 import { Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
-import { commands, handleAutocomplete, handleCommand, userFacingError } from "./commands.js";
+import { handleAutocomplete, handleCommand, userFacingError } from "./commands.js";
 import { assertConfig, config } from "./config.js";
+import { registerCommands } from "./register.js";
 
 try {
   assertConfig();
@@ -16,23 +17,22 @@ if (config.enableMessageContent) {
 
 const client = new Client({ intents });
 
-async function registerCommands() {
+let commandsRegistered = false;
+
+async function syncCommands() {
   try {
-    if (config.devGuildId) {
-      await client.application.commands.set(commands, config.devGuildId);
-      console.log(`Slash commands registered instantly in guild ${config.devGuildId}.`);
-    } else {
-      await client.application.commands.set(commands);
-      console.log("Slash commands registered globally (Discord may take up to an hour to show them).");
-    }
+    const { count, scope } = await registerCommands();
+    commandsRegistered = true;
+    console.log(`Registered ${count} slash command(s) ${scope}.`);
   } catch (error) {
     console.error("Could not register slash commands:", error.message);
   }
 }
 
-client.once(Events.ClientReady, (readyClient) => {
+client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Logged in as ${readyClient.user.tag} — in ${readyClient.guilds.cache.size} server(s).`);
-  registerCommands();
+  // Normally already done before login; retry once the gateway is up if it failed.
+  if (!commandsRegistered) await syncCommands();
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -67,6 +67,9 @@ process.on("SIGINT", () => {
   client.destroy();
   process.exit(0);
 });
+
+// `npm start` registers the slash commands itself; no separate `npm run register` step.
+await syncCommands();
 
 client.login(config.token).catch((error) => {
   console.error("Login failed:", error.message);

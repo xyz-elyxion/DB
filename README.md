@@ -45,7 +45,7 @@ disagree.
 
    ```bash
    cp .env.example .env
-   # paste DISCORD_TOKEN, and optionally CLIENT_ID / GUILD_ID
+   # paste DISCORD_TOKEN, and optionally GUILD_ID
    ```
 
 4. **Install and start**:
@@ -55,8 +55,9 @@ disagree.
    npm start
    ```
 
-   Slash commands are registered automatically on startup. Global commands can
-   take up to an hour to appear the first time — set `GUILD_ID` to one of your
+   `npm start` registers the slash commands and then logs the bot in — there is
+   no separate registration step, and no `CLIENT_ID` to copy. Global commands can
+   take up to an hour to appear the first time; set `GUILD_ID` to one of your
    servers to register them there instantly while testing.
 
 ### Copying messages (optional)
@@ -107,7 +108,7 @@ stays in the target — the bot can't know it was meant to be the same channel.
 ```bash
 npm test        # node:test suite for the snapshot reader, planner, executor and renderer
 npm run dev     # restart on file changes
-npm run register  # register commands without starting the bot (needs CLIENT_ID)
+npm run register  # re-register the commands without starting the bot
 ```
 
 Layout:
