@@ -2,7 +2,7 @@ import { CHANNEL_TYPE_IDS } from "./snapshot.js";
 import { describeError, sleep } from "./errors.js";
 import { copyChannelMessages } from "./messages.js";
 
-const CHANNEL_SETTING_FIELDS = [
+export const CHANNEL_SETTING_FIELDS = [
   "topic",
   "nsfw",
   "rateLimitPerUser",
@@ -47,7 +47,7 @@ async function memberInGuild(guild, userId, cache) {
   return member;
 }
 
-function channelCreatePayload(entry, parent, overwrites) {
+export function channelCreatePayload(entry, parent, overwrites) {
   const payload = {
     name: entry.name,
     type: CHANNEL_TYPE_IDS.get(entry.type),
@@ -93,7 +93,7 @@ function channelCreatePayload(entry, parent, overwrites) {
   return payload;
 }
 
-async function buildOverwrites(entry, roleMap, guild, memberCache, report) {
+export async function buildOverwrites(entry, roleMap, guild, memberCache, report) {
   const resolved = [];
   let droppedMembers = 0;
 

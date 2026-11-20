@@ -1,147 +1,121 @@
-# Server Preview Bot
+# Server Mirror Bot
 
-A Discord bot that copies one server's layout into another, so you can build a
-"preview" server, see how a redesign looks, and only then touch the real one.
+A Discord bot that keeps a **preview server** in step with a **main server**.
+It copies everything that exists when it starts, then mirrors every change as it
+happens — channels, roles, permissions, emojis, server settings and messages.
 
-Two commands:
-
-| Command | What it does |
-| --- | --- |
-| `/preview source target` | Reads both servers and shows the exact plan — every role, category, channel, emoji and setting that would be created or reused. Changes **nothing**. |
-| `/clone source target [messages] [settings]` | Executes that plan in the target server: creates roles, categories, channels, permission overwrites, emojis, and optionally replays recent messages and copies server settings. |
-
-Both commands take server IDs through autocomplete (the bot lists every server
-it is in). You run them **inside the target server**, so the person using them is
-someone with access to that server.
-
-## How it works
-
-1. The source and target servers are read into plain snapshots
-   (`src/lib/snapshot.js`): roles with hierarchy and permissions, channels with
-   parents, topics, slowmode, bitrate and permission overwrites, emojis and
-   server settings.
-2. `src/lib/planner.js` diffs them. Roles and channels that already exist in the
-   target (matched by name, and by type for channels) are **reused and updated**
-   instead of duplicated; everything else is marked for creation. Roles owned by
-   bots/integrations can't be recreated, so their permission overwrites are
-   dropped with a warning.
-3. `src/lib/builder.js` applies the plan step by step, with per-step error
-   handling, so one failed channel doesn't abort the run. Progress is streamed
-   into the command reply.
-
-Because the plan is a separate, pure step, `/preview` and `/clone` can never
-disagree.
+There are no commands: the two servers are set in `.env`, and the bot runs
+continuously.
 
 ## Setup
 
 1. **Create the application** at <https://discord.com/developers/applications> →
    *New Application* → *Bot* → *Reset Token*.
-2. **Invite the bot to both servers** (source and target) with these permissions:
-   *View Channels*, *Manage Channels*, *Manage Roles*, *Manage Expressions*
-   (emojis), *Manage Webhooks* (only needed for message copying) and
-   *Manage Server* (only needed if you copy settings).
-   Give it *Administrator* if you just want it to work.
-3. **Copy the config**:
+2. **Invite the bot to both servers** (source and target) with *View Channels*,
+   *Manage Channels*, *Manage Roles*, *Manage Expressions* (emojis),
+   *Manage Webhooks* (messages) and *Manage Server* (settings) — or just give it
+   *Administrator*.
+3. **Configure it**:
 
    ```bash
    cp .env.example .env
-   # paste DISCORD_TOKEN, and optionally GUILD_ID
    ```
 
-4. **Install and start**:
+   ```bash
+   DISCORD_TOKEN=your-bot-token
+   SOURCE_GUILD_ID=123456789012345678   # the "main" server
+   TARGET_GUILD_ID=987654321098765432   # the preview server
+   ENABLE_MESSAGE_CONTENT=false         # true to mirror messages too
+   ```
+
+4. **Run it**:
 
    ```bash
    npm install
    npm start
    ```
 
-   `npm start` registers the slash commands and then logs the bot in — there is
-   no separate registration step, and no `CLIENT_ID` to copy. Global commands can
-   take up to an hour to appear the first time; set `GUILD_ID` to one of your
-   servers to register them there instantly while testing.
+On startup it reconciles the two servers (creating anything missing and
+updating anything that differs), prints a summary, and then mirrors changes
+live. Server IDs are right-click → *Copy Server ID* with Developer Mode on.
 
-### Copying messages (optional)
+### Mirroring messages
 
-Message content is a privileged intent:
+Message text is a privileged intent:
 
-1. Developer Portal → your app → *Bot* → *Privileged Gateway Intents* →
-   enable **Message Content**.
+1. Developer Portal → your app → *Bot* → *Privileged Gateway Intents* → enable
+   **Message Content**.
 2. Set `ENABLE_MESSAGE_CONTENT=true` in `.env` and restart.
 
-Then `/clone ... messages:25` replays the last 25 messages of each text channel
-through a temporary webhook, keeping each author's display name and avatar.
-Mentions are sent inert (no pings), and messages with no text and no attachments
-are skipped. Without the intent, `/clone` still copies the structure.
+New messages are reposted in the matching target channel through a `Server
+mirror` webhook, so they keep the author's name, avatar and attachments. Edits
+and deletions are replayed onto the mirrored copy. Mentions are sent inert (no
+pings) and messages are split at Discord's 2000-character limit. Without the
+intent, the bot mirrors the server structure only.
 
-### Live mirroring (optional)
+## What is mirrored
 
-`/clone` copies what already exists. To keep the preview server up to date as
-people talk, give the bot both server IDs in `.env`:
+When it starts:
 
-```bash
-SOURCE_GUILD_ID=123456789012345678   # the "main" server people type in
-TARGET_GUILD_ID=987654321098765432   # the preview server
-```
+- Roles (name, colour, hoist, mentionable, permissions, order), categories,
+  text/announcement/voice/stage/forum/media channels, permission overwrites,
+  emojis, and server name, icon, AFK channel/timeout, system channel,
+  verification level, content filter and default notifications.
 
-With `ENABLE_MESSAGE_CONTENT=true` and `npm start`, every new message in the
-source server is reposted in the target channel with the same name and type —
-through a `Server mirror` webhook, so it keeps the author's name, avatar and
-attachments. Channel names are the link between the two servers: a message in a
-channel the target doesn't have is skipped with a note in the console, and voice
-channels are never mirrored.
+While it runs:
 
-Not mirrored: bots and webhook messages, system notes, threads, reactions,
-edits and deletions. Mirroring is one-way (source → target); nothing is sent
-back.
+| In the main server | In the preview server |
+| --- | --- |
+| Channel created, renamed, re-topic'd, re-ordered, moved between categories, permissions changed | Same channel created/updated in place |
+| Channel deleted | The mirrored channel is deleted (categories take their children) |
+| Role created, renamed, recoloured, permissions or position changed | Same role created/updated |
+| Role deleted | The mirrored role is deleted |
+| Emoji added, renamed, removed | Same emoji added/renamed/removed |
+| Server name, icon, AFK/system channel, verification level, filter, notifications | Applied to the preview server |
+| Message sent, edited, deleted | Reposted, edited and deleted through the webhook |
 
-## What is and isn't copied
+Matching is by name (and type for channels), so re-running and restarting are
+safe: existing objects are updated rather than duplicated.
 
-Copied:
+## What is not mirrored
 
-- Roles: name, colour, hoist, mentionable, permissions, and hierarchy order
-  (as far as the bot's own top role allows).
-- Categories, text, announcement, voice, stage, forum and media channels:
-  name, parent, position, topic, NSFW flag, slowmode, bitrate, user limit,
-  auto-archive and forum tags.
-- Permission overwrites for roles and for members who exist in the target.
-- Emojis (up to the target's free slots, 256 KB max).
-- Server name, icon, AFK channel/timeout, system channel, verification level,
-  explicit content filter and default notifications (toggle with `settings`).
-- Recent messages per text channel, if you ask for them.
+Members and their roles, bans, invites, webhooks you created, bots and
+integrations, threads and their history, stickers, soundboard sounds, boosts,
+audit log, auto-moderation rules, onboarding and scheduled events. Role and
+channel IDs are never linked, so a rename in the main server is followed only
+because the bot saw the event — renaming while the bot is offline leaves a
+stale channel behind.
 
-Not copied: members themselves, invites, bans, webhooks, bots, integrations,
-threads and their history, stickers, soundboard sounds, boosts, audit log,
-auto-moderation rules, onboarding, scheduled events, or role/channel IDs
-(nothing is linked between the two servers).
+## Good to know
 
-The bot never deletes anything in the target. Extra roles or channels that exist
-there but not in the source are left alone.
-
-## Re-running
-
-Every run is idempotent-ish: roles and channels are matched by name and updated
-in place, so running `/clone` again after changing the source converges the
-target instead of duplicating it. Rename a channel in the source and the old one
-stays in the target — the bot can't know it was meant to be the same channel.
+- The bot only ever changes the target server; it never deletes anything there
+  that it did not create, except mirrored deletions (delete a channel in the
+  main server and the mirrored one goes too).
+- Channel and role matching is by name. If you have two channels with the same
+  name in the same server, the one in the matching category is preferred.
+- Deleting the `Server mirror` webhook is fine — the bot creates a new one.
+- If the bot is in neither server (or the IDs are wrong) it says so on startup
+  and exits.
 
 ## Development
 
 ```bash
-npm test        # node:test suite for the snapshot reader, planner, executor and renderer
-npm run dev     # restart on file changes
-npm run register  # re-register the commands without starting the bot
+npm test      # node:test suite for the snapshot reader, planner, executor, mirror and live sync
+npm run dev   # restart on file changes
 ```
 
 Layout:
 
 ```
-src/index.js           client, intents, command registration, interaction handling
-src/commands.js        /preview and /clone definitions + handlers
+src/index.js           startup reconcile + event wiring
+src/config.js          .env parsing and validation
 src/lib/snapshot.js    live guild -> plain snapshot
 src/lib/planner.js     snapshot diff -> plan (pure)
-src/lib/builder.js     plan -> Discord API calls, with progress + error reporting
-src/lib/messages.js    webhook message replay
-src/lib/render.js      embeds for preview, progress and results
+src/lib/builder.js     plan -> Discord API calls (startup reconcile)
+src/lib/live.js        change events -> target guild
+src/lib/mirror.js      message mirroring through webhooks
+src/lib/messages.js    message splitting and webhook helpers
+src/lib/errors.js      user-facing errors and helpers
 ```
 
 The bot needs Node.js 20.18 or newer.

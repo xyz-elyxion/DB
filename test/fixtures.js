@@ -97,6 +97,10 @@ export function fakeGuild({ id = "2000", name = "Preview", roles = [], channels 
       async setPosition(position) {
         role.position = position;
       },
+      async delete() {
+        role.deleted = true;
+        guild.roles.cache.delete(role.id);
+      },
     };
     guild.roles.cache.set(role.id, role);
     guild.createdRoles.push(role);
@@ -127,6 +131,10 @@ export function fakeGuild({ id = "2000", name = "Preview", roles = [], channels 
       },
       async setPosition(position) {
         channel.position = position;
+      },
+      async delete() {
+        channel.deleted = true;
+        guild.channels.cache.delete(channel.id);
       },
     };
     guild.channels.cache.set(channel.id, channel);

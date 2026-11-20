@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Discord bot that previews and replicates one server's structure into another server.",
+  "description": "Discord bot that keeps a preview server in step with a main server, live.",
   "main": "src/index.js",
   "engines": {
     "node": ">=20.18"
@@ -11,7 +11,6 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "register": "node scripts/register-commands.js",
     "test": "node --test"
   },
   "dependencies": {

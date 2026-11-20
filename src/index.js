@@ -1,8 +1,9 @@
-import { Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
-import { handleAutocomplete, handleCommand, userFacingError } from "./commands.js";
+import { Client, Events, GatewayIntentBits } from "discord.js";
 import { assertConfig, config } from "./config.js";
-import { registerCommands } from "./register.js";
-import { mirrorMessage } from "./lib/mirror.js";
+import { applyPlan } from "./lib/builder.js";
+import { createLiveSync } from "./lib/live.js";
+import { planReplication } from "./lib/planner.js";
+import { snapshotGuild } from "./lib/snapshot.js";
 
 try {
   assertConfig();
@@ -17,97 +18,97 @@ if (config.enableMessageContent) {
 }
 
 const client = new Client({ intents });
+const live = createLiveSync({
+  sourceId: config.sourceId,
+  targetId: config.targetId,
+  client,
+  reason: "Server mirroring",
+});
 
-// Live mirroring: repost new messages from one server into the matching channel
-// of the other, using SOURCE_GUILD_ID + TARGET_GUILD_ID.
-const mirroring = Boolean(config.mirror.sourceId && config.mirror.targetId);
-const mirrorEnabled = mirroring && config.enableMessageContent;
+// Nothing is mirrored until the startup sync has run, so half-built servers
+// can't be edited by events that arrive while it is still working.
+let liveReady = false;
 
-if (mirroring && !config.enableMessageContent) {
-  console.warn(
-    "Live mirroring is configured, but ENABLE_MESSAGE_CONTENT is off — message text can't be read, so nothing will be mirrored.",
-  );
-}
-
-const mirrorHooks = new Map();
-
-async function handleMirroredMessage(message) {
-  if (!mirrorEnabled) return;
-  if (message.guildId !== config.mirror.sourceId) return;
-
-  const target =
-    client.guilds.cache.get(config.mirror.targetId) ??
-    (await client.guilds.fetch(config.mirror.targetId).catch(() => null));
-  if (!target) {
-    console.warn(`I'm not in the mirror target server (${config.mirror.targetId}).`);
-    return;
-  }
-
-  const result = await mirrorMessage({
-    message,
-    targetGuild: target,
-    client,
-    hooks: mirrorHooks,
+function on(event, label, run) {
+  client.on(event, (...args) => {
+    if (!liveReady) return;
+    Promise.resolve(run(...args)).catch((error) => {
+      console.error(`Could not apply ${label}:`, error.message);
+    });
   });
-
-  if (result.reason === "no matching channel") {
-    console.warn(
-      `No #${message.channel?.name} in the target server, so that message wasn't mirrored.`,
-    );
-  }
 }
 
-let commandsRegistered = false;
+on(Events.ChannelCreate, "a created channel", (channel) => live.onChannelCreate(channel));
+on(Events.ChannelUpdate, "a channel update", (oldChannel, newChannel) =>
+  live.onChannelUpdate(oldChannel, newChannel),
+);
+on(Events.ChannelDelete, "a deleted channel", (channel) => live.onChannelDelete(channel));
 
-async function syncCommands() {
-  try {
-    const { count, scope } = await registerCommands();
-    commandsRegistered = true;
-    console.log(`Registered ${count} slash command(s) ${scope}.`);
-  } catch (error) {
-    console.error("Could not register slash commands:", error.message);
-  }
+on(Events.RoleCreate, "a created role", (role) => live.onRoleCreate(role));
+on(Events.RoleUpdate, "a role update", (oldRole, newRole) =>
+  live.onRoleUpdate(oldRole, newRole),
+);
+on(Events.RoleDelete, "a deleted role", (role) => live.onRoleDelete(role));
+
+on(Events.EmojiCreate, "a created emoji", (emoji) => live.onEmojiCreate(emoji));
+on(Events.EmojiUpdate, "an emoji update", (oldEmoji, newEmoji) =>
+  live.onEmojiUpdate(oldEmoji, newEmoji),
+);
+on(Events.EmojiDelete, "a deleted emoji", (emoji) => live.onEmojiDelete(emoji));
+
+on(Events.GuildUpdate, "a server update", (oldGuild, newGuild) =>
+  live.onGuildUpdate(oldGuild, newGuild),
+);
+
+on(Events.MessageCreate, "a new message", (message) => live.onMessageCreate(message));
+on(Events.MessageUpdate, "a message update", (oldMessage, newMessage) =>
+  live.onMessageUpdate(oldMessage, newMessage),
+);
+on(Events.MessageDelete, "a deleted message", (message) => live.onMessageDelete(message));
+
+async function resolveGuild(id) {
+  return client.guilds.cache.get(id) ?? (await client.guilds.fetch(id).catch(() => null));
 }
 
 client.once(Events.ClientReady, async (readyClient) => {
-  console.log(`Logged in as ${readyClient.user.tag} — in ${readyClient.guilds.cache.size} server(s).`);
-  // Normally already done before login; retry once the gateway is up if it failed.
-  if (!commandsRegistered) await syncCommands();
-  if (mirrorEnabled) {
-    console.log(
-      `Mirroring new messages from ${config.mirror.sourceId} into ${config.mirror.targetId}.`,
+  console.log(`Logged in as ${readyClient.user.tag}.`);
+
+  const source = await resolveGuild(config.sourceId);
+  const target = await resolveGuild(config.targetId);
+  if (!source || !target) {
+    const missing = [
+      !source ? `source (${config.sourceId})` : null,
+      !target ? `target (${config.targetId})` : null,
+    ].filter(Boolean);
+    console.error(`I'm not in the ${missing.join(" and ")} server. Invite me there first.`);
+    process.exit(1);
+  }
+
+  const plan = planReplication(snapshotGuild(source), snapshotGuild(target));
+  const report = await applyPlan({
+    plan,
+    sourceGuild: source,
+    targetGuild: target,
+    options: { reason: "Server mirroring" },
+  });
+
+  console.log(
+    `Startup sync: ${report.rolesCreated} role(s) and ${report.channelsCreated} channel(s) created, ` +
+      `${report.emojisCreated} emoji(s), ${report.settingsApplied} setting(s) applied.`,
+  );
+  for (const error of report.errors) console.error(`  ! ${error}`);
+
+  await live.attach(source, target);
+  liveReady = true;
+
+  if (!config.enableMessageContent) {
+    console.warn(
+      "ENABLE_MESSAGE_CONTENT is off, so messages are not mirrored — only the server structure. " +
+        "Enable the intent in the Developer Portal, set ENABLE_MESSAGE_CONTENT=true, and restart.",
     );
   }
-});
 
-client.on(Events.MessageCreate, (message) => {
-  handleMirroredMessage(message).catch((error) => {
-    console.error(`Couldn't mirror a message from #${message.channel?.name}:`, error.message);
-  });
-});
-
-client.on(Events.InteractionCreate, async (interaction) => {
-  try {
-    if (interaction.isAutocomplete()) {
-      await handleAutocomplete(interaction);
-      return;
-    }
-
-    if (interaction.isChatInputCommand()) {
-      await handleCommand(interaction);
-    }
-  } catch (error) {
-    const message = userFacingError(error);
-    try {
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply({ content: `⚠️ ${message}`, embeds: [] });
-      } else if (interaction.isRepliable()) {
-        await interaction.reply({ content: `⚠️ ${message}`, flags: MessageFlags.Ephemeral });
-      }
-    } catch {
-      // The interaction may have expired; nothing else to do.
-    }
-  }
+  console.log(`Mirroring ${source.name} (${source.id}) -> ${target.name} (${target.id}) live.`);
 });
 
 process.on("unhandledRejection", (error) => {
@@ -118,9 +119,6 @@ process.on("SIGINT", () => {
   client.destroy();
   process.exit(0);
 });
-
-// `npm start` registers the slash commands itself; no separate `npm run register` step.
-await syncCommands();
 
 client.login(config.token).catch((error) => {
   console.error("Login failed:", error.message);

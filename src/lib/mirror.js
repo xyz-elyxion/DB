@@ -64,7 +64,8 @@ async function webhookFor(channel, client, hooks) {
   return webhook;
 }
 
-function payload(message, content, withFiles) {
+/** The webhook payload for one chunk of a message. */
+export function webhookPayload(message, content, withFiles = false) {
   const files = withFiles
     ? [...(message.attachments?.values?.() ?? [])].slice(0, MAX_FILES).map((file) => file.url)
     : [];
@@ -90,10 +91,15 @@ export async function mirrorMessage({ message, targetGuild, client, hooks = new 
   if (!targetChannel) return { mirrored: false, reason: "no matching channel" };
 
   const chunks = splitContent(message.content);
+  const messageIds = [];
   const sendAll = async (webhook) => {
     const [first, ...rest] = chunks;
-    await webhook.send(payload(message, first, true));
-    for (const chunk of rest) await webhook.send(payload(message, chunk, false));
+    const sent = await webhook.send(webhookPayload(message, first, true));
+    if (sent?.id) messageIds.push(sent.id);
+    for (const chunk of rest) {
+      const extra = await webhook.send(webhookPayload(message, chunk));
+      if (extra?.id) messageIds.push(extra.id);
+    }
   };
 
   let webhook = await webhookFor(targetChannel, client, hooks);
@@ -106,5 +112,11 @@ export async function mirrorMessage({ message, targetGuild, client, hooks = new 
     await sendAll(webhook);
   }
 
-  return { mirrored: true, channel: targetChannel.name, chunks: Math.max(1, chunks.length) };
+  return {
+    mirrored: true,
+    channel: targetChannel.name,
+    chunks: Math.max(1, chunks.length),
+    messageIds,
+    webhook,
+  };
 }

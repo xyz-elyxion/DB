@@ -46,7 +46,7 @@ function threadSettings(channel) {
   };
 }
 
-function snapshotChannel(channel, type) {
+export function snapshotChannel(channel, type) {
   const base = {
     id: channel.id,
     name: channel.name,
