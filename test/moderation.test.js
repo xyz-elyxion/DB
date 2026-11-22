@@ -269,6 +269,39 @@ test("missing permissions are explained and nothing happens", async () => {
   assert.equal(cases.count, 0);
 });
 
+test("create-invite hands back the link and records who it was for", async () => {
+  const { guild } = moderationGuild();
+  const cases = createCaseStore();
+  const seen = {};
+
+  const interaction = interactionFor({
+    commandName: "create-invite",
+    guild,
+    member: moderator(),
+    options: { user_id: "123456789012345678" },
+  });
+
+  await runModerationCommand(interaction, {
+    cases,
+    previewGuild: { id: "preview", name: "Main Preview" },
+    invites: {
+      async createLocked({ guild: preview, userId, inviterId }) {
+        seen.preview = preview.id;
+        seen.userId = userId;
+        seen.inviterId = inviterId;
+        return { record: { code: "abc123", url: "https://discord.gg/abc123" } };
+      },
+    },
+  });
+
+  assert.equal(seen.preview, "preview", "the invite is made on the preview server");
+  assert.equal(seen.userId, "123456789012345678");
+  assert.equal(seen.inviterId, "mod");
+  assert.match(interaction.replies[0].content, /discord\.gg\/abc123/);
+  assert.match(interaction.replies[0].content, /123456789012345678/);
+  assert.equal(cases.get("g1", 1).type, "invite");
+});
+
 test("unknown commands are left alone", async () => {
   const { guild } = moderationGuild();
   const interaction = interactionFor({ commandName: "ship", guild, member: moderator() });
@@ -286,6 +319,7 @@ test("the command set is complete and self-describing", () => {
       "ban",
       "case",
       "clearwarnings",
+      "create-invite",
       "kick",
       "lock",
       "purge",

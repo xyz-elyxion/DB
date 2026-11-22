@@ -129,12 +129,39 @@ the real server:
 | `/slowmode seconds [channel]` | Sets slowmode, `0` turns it off | Manage Channels |
 | `/lock [channel] [reason]` | Stops `@everyone` talking in a channel | Manage Channels |
 | `/unlock [channel] [reason]` | Undoes a lock | Manage Channels |
+| `/create-invite [user_id]` | Creates a single-use invite to the **preview** server, optionally for one person only | Create Invite |
 
 Replies are private to the moderator. Ban, kick, timeout, warn and the rest are
 stored as numbered cases in `CASES_FILE` (`data/moderation.json` by default), so
 warnings and case numbers survive restarts. Each case is also posted as an embed
 to `MOD_LOG_CHANNEL_ID`, or to a channel named `#mod-logs` if that exists — no
 log channel is required.
+
+### `/create-invite`
+
+Creates an invite to the **preview** server (never the main one) that stops
+working after the first join, expires after 7 days, and lands people in
+`#join-server` (or `#rules`/`#welcome`/the first text channel).
+
+With `user_id`, the invite is tied to that person: if they join, it works and is
+spent. If anyone else joins with it, the bot kicks them and deletes the invite.
+Discord doesn't say which invite a member used, so the bot compares invite use
+counts before and after each join — which is why the preview's invites have to
+be readable by the bot (*Manage Server* there). Pending personal invites are
+kept in `INVITES_FILE` (`data/invites.json`), so they still work after a restart.
+
+This needs the privileged **Server Members** intent, or the bot never hears
+about joins:
+
+1. Developer Portal → your app → *Bot* → *Privileged Gateway Intents* → enable
+   **Server Members**.
+2. Keep `ENABLE_MEMBER_INTENTS=true` (the default) and restart.
+
+The bot also needs **Kick Members** in the preview for the wrong-person case.
+
+If an admin deletes a personal invite by hand, the next unrelated join can be
+mistaken for it — recreate the invite instead of deleting it, or accept the one
+false kick.
 
 The bot checks rank before acting: it won't let you moderate yourself, the server
 owner, or someone whose top role is equal to or above yours, and it says so when
@@ -209,6 +236,7 @@ src/lib/mirror.js      message mirroring through webhooks
 src/lib/preview.js     preview name and read-only overwrites
 src/lib/join.js        OAuth2 join flow, #join-server channel and embed
 src/lib/moderation.js  moderation commands, rank checks and case logging
+src/lib/invites.js     single-use preview invites and the wrong-person kick
 src/lib/cases.js       JSON-backed case/warning store
 src/lib/duration.js    timeout duration parsing and formatting
 src/lib/messages.js    message splitting and webhook helpers

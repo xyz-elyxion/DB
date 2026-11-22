@@ -2,6 +2,7 @@ import { Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
 import { assertConfig, config } from "./config.js";
 import { applyPlan } from "./lib/builder.js";
 import { createCaseStore } from "./lib/cases.js";
+import { createInviteGuard } from "./lib/invites.js";
 import {
   createJoinFlow,
   ensureJoinChannel,
@@ -25,6 +26,9 @@ const intents = [GatewayIntentBits.Guilds];
 if (config.enableMessageContent) {
   intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
 }
+if (config.enableMemberEvents) {
+  intents.push(GatewayIntentBits.GuildMembers);
+}
 
 const client = new Client({ intents });
 const live = createLiveSync({
@@ -36,6 +40,39 @@ const live = createLiveSync({
 
 // Warnings and case numbers live on disk so they survive restarts.
 const cases = createCaseStore({ file: config.casesFile });
+
+// Personal preview invites, and the guard that kicks anyone who uses someone
+// else's link.
+const inviteGuard = createInviteGuard({ guildId: config.targetId, file: config.invitesFile });
+
+// The preview guild, once the bot has connected.
+let previewGuild = null;
+
+if (config.enableMemberEvents) {
+  client.on(Events.GuildMemberAdd, async (member) => {
+    if (member.guild?.id !== config.targetId) return;
+
+    try {
+      const result = await inviteGuard.handleJoin(member);
+      const who = member.user?.tag ?? member.id;
+
+      if (result.action === "kicked") {
+        console.log(
+          `[invite] Kicked ${who}: the invite was for ${result.expectedUserId ?? "another user"}.`,
+        );
+      } else if (result.action === "allowed") {
+        console.log(`[invite] ${who} used their personal invite.`);
+      }
+    } catch (error) {
+      console.error("Invite guard failed:", error.message);
+    }
+  });
+} else {
+  console.warn(
+    "ENABLE_MEMBER_INTENTS is off, so one-person preview invites can't be enforced. " +
+      "Enable the Server Members intent in the Developer Portal and turn it back on.",
+  );
+}
 
 // Moderation belongs to the real server; the preview is read-only anyway.
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -54,6 +91,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
   await runModerationCommand(interaction, {
     cases,
     logChannelId: config.modLogChannelId,
+    previewGuild,
+    invites: inviteGuard,
   });
 });
 
@@ -174,6 +213,9 @@ client.once(Events.ClientReady, async (readyClient) => {
     });
   }
 
+  previewGuild = target;
+  await inviteGuard.prime(target);
+
   try {
     await source.commands.set(MOD_COMMANDS.map((command) => command.toJSON()));
     console.log(`Registered ${MOD_COMMANDS.length} moderation command(s) in ${source.name}.`);
@@ -212,5 +254,11 @@ process.on("SIGINT", () => {
 
 client.login(config.token).catch((error) => {
   console.error("Login failed:", error.message);
+  if (/disallowed intent/i.test(error.message)) {
+    console.error(
+      "Enable **Server Members** (and Message Content, if you mirror messages) under " +
+        "Developer Portal → Bot → Privileged Gateway Intents, or set ENABLE_MEMBER_INTENTS=false.",
+    );
+  }
   process.exit(1);
 });

@@ -23,6 +23,7 @@ const GUARDS = {
   warnings: { bit: PermissionFlagsBits.ModerateMembers, label: "Moderate Members" },
   clearwarnings: { bit: PermissionFlagsBits.ModerateMembers, label: "Moderate Members" },
   case: { bit: PermissionFlagsBits.ModerateMembers, label: "Moderate Members" },
+  "create-invite": { bit: PermissionFlagsBits.CreateInstantInvite, label: "Create Invite" },
   purge: { bit: PermissionFlagsBits.ManageMessages, label: "Manage Messages" },
   slowmode: { bit: PermissionFlagsBits.ManageChannels, label: "Manage Channels" },
   lock: { bit: PermissionFlagsBits.ManageChannels, label: "Manage Channels" },
@@ -41,6 +42,7 @@ const COLORS = {
   lock: 0x99aab5,
   unlock: 0x57f287,
   slowmode: 0x5865f2,
+  invite: 0x57f287,
 };
 
 const memberOption = (option) =>
@@ -174,6 +176,15 @@ export const MOD_COMMANDS = [
       option.setName("channel").setDescription("Defaults to this channel"),
     )
     .addStringOption((option) => reasonOption(option)),
+  new SlashCommandBuilder()
+    .setName("create-invite")
+    .setDescription("Create an invite to the preview server.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.CreateInstantInvite)
+    .addStringOption((option) =>
+      option
+        .setName("user_id")
+        .setDescription("Only this user may use it — anyone else who joins gets kicked"),
+    ),
 ];
 
 function cleanReason(value) {
@@ -526,6 +537,53 @@ const HANDLERS = {
       caseData: { type: "unlock", channelId: channel.id, reason },
     };
   },
+
+  async "create-invite"({ moderator, options, previewGuild, invites }) {
+    if (!previewGuild) {
+      throw new UserError("I'm not in the preview server, so I can't create an invite there.");
+    }
+    if (!invites) throw new UserError("Invite tracking isn't running, so I can't make one safely.");
+
+    const raw = options.getString("user_id");
+    const userId = raw ? raw.replace(/[<@!>]/g, "").trim() : null;
+    if (raw && !/^\d{16,20}$/.test(userId)) {
+      throw new UserError(
+        "That isn't a user ID. Turn on Developer Mode, right-click the person → **Copy User ID**.",
+      );
+    }
+
+    const { record } = await invites.createLocked({
+      guild: previewGuild,
+      userId,
+      inviterId: moderator.id,
+      reason: userId ? `Preview invite for ${userId}` : "Preview invite",
+    });
+
+    const lines = [
+      `🎟️ Single-use invite to **${previewGuild.name}**, valid for 7 days:`,
+      record.url,
+    ];
+
+    if (userId) {
+      lines.push(
+        "",
+        `It only works for <@${userId}>. If anyone else joins with it, they are kicked and the invite is deleted.`,
+      );
+    } else {
+      lines.push("", "Anyone who has the link can use it once.");
+    }
+
+    return {
+      message: lines.join("\n"),
+      caseData: {
+        type: "invite",
+        targetId: userId,
+        reason: userId
+          ? `Personal preview invite (${record.code})`
+          : `Preview invite (${record.code})`,
+      },
+    };
+  },
 };
 
 /**
@@ -533,7 +591,8 @@ const HANDLERS = {
  * action that leaves a trace is stored as a case and posted to the mod log.
  * Returns false when the command isn't ours.
  */
-export async function runModerationCommand(interaction, { cases, logChannelId = null } = {}) {
+export async function runModerationCommand(interaction, context = {}) {
+  const { cases, logChannelId = null } = context;
   const name = interaction.commandName;
   const handler = HANDLERS[name];
   if (!handler) return false;
@@ -545,7 +604,13 @@ export async function runModerationCommand(interaction, { cases, logChannelId = 
     if (!guild) throw new UserError("Moderation commands only work inside a server.");
     requirePermission(moderator, GUARDS[name]);
 
-    const result = await handler({ interaction, guild, moderator, options: interaction.options, cases });
+    const result = await handler({
+      interaction,
+      guild,
+      moderator,
+      options: interaction.options,
+      ...context,
+    });
 
     const record = result.caseData
       ? cases.add({ guildId: guild.id, moderatorId: moderator.id, ...result.caseData })

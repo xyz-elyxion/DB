@@ -24,9 +24,13 @@ export const config = {
   sourceId: process.env.SOURCE_GUILD_ID?.trim() || null,
   targetId: process.env.TARGET_GUILD_ID?.trim() || null,
   enableMessageContent: readBoolean(process.env.ENABLE_MESSAGE_CONTENT),
+  // Member join events need the privileged Server Members intent; they power
+  // the one-person preview invites.
+  enableMemberEvents: readBoolean(process.env.ENABLE_MEMBER_INTENTS, true),
   clientSecret: process.env.CLIENT_SECRET?.trim() || null,
   modLogChannelId: process.env.MOD_LOG_CHANNEL_ID?.trim() || null,
   casesFile: process.env.CASES_FILE?.trim() || "data/moderation.json",
+  invitesFile: process.env.INVITES_FILE?.trim() || "data/invites.json",
   port,
   publicUrls,
   joinPath: "/join/callback",
