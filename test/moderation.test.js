@@ -303,6 +303,39 @@ test("create-invite hands back the link and records who it was for", async () =>
   assert.equal(cases.get("g1", 1).type, "invite");
 });
 
+test("remove-invite takes a link and removes the invite on the preview", async () => {
+  const { guild } = moderationGuild();
+  const cases = createCaseStore();
+  const seen = {};
+
+  const interaction = interactionFor({
+    commandName: "remove-invite",
+    guild,
+    member: moderator(),
+    options: { code: "https://discord.gg/abc123" },
+  });
+
+  await runModerationCommand(interaction, {
+    cases,
+    previewGuild: { id: "preview", name: "Main Preview" },
+    invites: {
+      async remove({ guild: preview, code, reason }) {
+        seen.preview = preview.id;
+        seen.code = code;
+        seen.reason = reason;
+        return { code, userId: "123456789012345678" };
+      },
+    },
+  });
+
+  assert.equal(seen.preview, "preview", "invites are removed from the preview");
+  assert.equal(seen.code, "abc123", "a full link is accepted");
+  assert.match(seen.reason, /mod/);
+  assert.match(interaction.replies[0].content, /Removed the invite/);
+  assert.match(interaction.replies[0].content, /123456789012345678/);
+  assert.equal(cases.get("g1", 1).type, "remove-invite");
+});
+
 test("block-join keeps the reason and records a case", async () => {
   const { guild } = moderationGuild();
   const cases = createCaseStore();
@@ -393,6 +426,7 @@ test("the command set is complete and self-describing", () => {
       "kick",
       "lock",
       "purge",
+      "remove-invite",
       "slowmode",
       "timeout",
       "unban",

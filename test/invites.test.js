@@ -4,7 +4,12 @@ import { ChannelType } from "discord.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { INVITE_MAX_AGE_SECONDS, createInviteGuard, pickInviteChannel } from "../src/lib/invites.js";
+import {
+  INVITE_MAX_AGE_SECONDS,
+  createInviteGuard,
+  parseInviteCode,
+  pickInviteChannel,
+} from "../src/lib/invites.js";
 
 function fakePreview({ channels = null } = {}) {
   const store = new Map();
@@ -59,6 +64,14 @@ function joiner(guild, id) {
   };
 }
 
+test("invite codes are read from bare codes and links", () => {
+  assert.equal(parseInviteCode("abc123"), "abc123");
+  assert.equal(parseInviteCode("https://discord.gg/abc123"), "abc123");
+  assert.equal(parseInviteCode("https://discord.com/invite/AbC-123"), "AbC-123");
+  assert.equal(parseInviteCode(" https://discordapp.com/invite/xyz "), "xyz");
+  assert.equal(parseInviteCode("  "), "");
+});
+
 test("the invite lands in #join-server when it exists", () => {
   const { guild } = fakePreview();
   assert.equal(pickInviteChannel(guild).id, "c-join");
@@ -109,6 +122,41 @@ test("anyone else is kicked and the invite is gone", async () => {
   assert.equal(result.expectedUserId, "u1");
   assert.equal(member.kicked, true);
   assert.equal(guard.pending, 0, "the invite is no longer tracked");
+});
+
+test("removing a personal invite deletes it and stops the kick guard tracking it", async () => {
+  const { guild, store } = fakePreview();
+  const guard = createInviteGuard({ guildId: "preview" });
+  const { record } = await guard.createLocked({ guild, userId: "u1" });
+
+  const result = await guard.remove({ guild, code: record.code });
+
+  assert.equal(result.userId, "u1");
+  assert.equal(store.has(record.code), false, "the invite is gone from Discord");
+  assert.equal(guard.pending, 0);
+
+  const member = joiner(guild, "u1");
+  assert.equal((await guard.handleJoin(member)).action, "ignored");
+  assert.equal(member.kicked, false);
+});
+
+test("removing an invite that is already gone just forgets it", async () => {
+  const { guild, store } = fakePreview();
+  const guard = createInviteGuard({ guildId: "preview" });
+  const { record } = await guard.createLocked({ guild, userId: "u1" });
+  store.delete(record.code);
+
+  const result = await guard.remove({ guild, code: record.code });
+
+  assert.equal(result.userId, "u1");
+  assert.equal(guard.pending, 0);
+});
+
+test("an unknown invite can't be removed", async () => {
+  const { guild } = fakePreview();
+  const guard = createInviteGuard({ guildId: "preview" });
+
+  await assert.rejects(guard.remove({ guild, code: "nope" }), /no invite/);
 });
 
 test("joins through ordinary invites are left alone", async () => {

@@ -6,6 +6,7 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import { MAX_TIMEOUT_MS, formatDuration, parseDuration } from "./duration.js";
+import { parseInviteCode } from "./invites.js";
 import { UserError, describeError } from "./errors.js";
 
 const DAY = 86_400_000;
@@ -24,6 +25,7 @@ const GUARDS = {
   clearwarnings: { bit: PermissionFlagsBits.ModerateMembers, label: "Moderate Members" },
   case: { bit: PermissionFlagsBits.ModerateMembers, label: "Moderate Members" },
   "create-invite": { bit: PermissionFlagsBits.CreateInstantInvite, label: "Create Invite" },
+  "remove-invite": { bit: PermissionFlagsBits.CreateInstantInvite, label: "Create Invite" },
   "block-join": { bit: PermissionFlagsBits.ModerateMembers, label: "Moderate Members" },
   "unblock-join": { bit: PermissionFlagsBits.ModerateMembers, label: "Moderate Members" },
   "blocked-joins": { bit: PermissionFlagsBits.ModerateMembers, label: "Moderate Members" },
@@ -46,6 +48,7 @@ const COLORS = {
   unlock: 0x57f287,
   slowmode: 0x5865f2,
   invite: 0x57f287,
+  "remove-invite": 0xed4245,
   "block-join": 0xed4245,
   "unblock-join": 0x57f287,
 };
@@ -189,6 +192,17 @@ export const MOD_COMMANDS = [
       option
         .setName("user_id")
         .setDescription("Only this user may use it — anyone else who joins gets kicked"),
+    ),
+  new SlashCommandBuilder()
+    .setName("remove-invite")
+    .setDescription("Delete an invite to the preview server.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.CreateInstantInvite)
+    .addStringOption((option) =>
+      option
+        .setName("code")
+        .setDescription("The invite code or full link")
+        .setRequired(true)
+        .setMaxLength(120),
     ),
   new SlashCommandBuilder()
     .setName("block-join")
@@ -608,6 +622,34 @@ const HANDLERS = {
         reason: userId
           ? `Personal preview invite (${record.code})`
           : `Preview invite (${record.code})`,
+      },
+    };
+  },
+
+  async "remove-invite"({ moderator, options, previewGuild, invites }) {
+    if (!previewGuild) {
+      throw new UserError("I'm not in the preview server, so I can't remove an invite there.");
+    }
+    if (!invites) throw new UserError("Invite tracking isn't running, so I can't remove one safely.");
+
+    const code = parseInviteCode(options.getString("code", true));
+    if (!code) throw new UserError("Give me an invite code or link to remove.");
+
+    const result = await invites.remove({
+      guild: previewGuild,
+      code,
+      reason: `Invite removed by ${moderator.id}`,
+    });
+
+    return {
+      message:
+        `🗑️ Removed the invite \`${code}\`` +
+        (result.userId ? ` that was made for <@${result.userId}>` : "") +
+        ".",
+      caseData: {
+        type: "remove-invite",
+        targetId: result.userId,
+        reason: `Removed invite ${code}`,
       },
     };
   },

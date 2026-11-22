@@ -7,6 +7,13 @@ import { JOIN_CHANNEL_NAME } from "./join.js";
 /** Locked invites last a week; they are single-use long before that. */
 export const INVITE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
+/** Accepts a bare code, a discord.gg link or a discord.com/invite link. */
+export function parseInviteCode(input) {
+  const text = String(input ?? "").trim();
+  const match = /(?:discord\.gg|discord(?:app)?\.com\/invite)\/([A-Za-z0-9-]+)/i.exec(text);
+  return (match?.[1] ?? text).replace(/\s+/g, "");
+}
+
 /** Where a preview invite should land: the join channel, then rules/welcome. */
 export function pickInviteChannel(guild) {
   const channels = [...(guild.channels?.cache?.values?.() ?? [])].filter(
@@ -105,6 +112,39 @@ export function createInviteGuard({ guildId, file = null } = {}) {
     return { invite, record };
   }
 
+  /** Delete an invite in the preview and forget it, so it can't trip the kick guard. */
+  async function remove({ guild, code, reason = "Invite removed" }) {
+    if (!guild || guild.id !== guildId) {
+      throw new UserError("I'm not in the preview server, so I can't remove an invite there.");
+    }
+    if (!code) throw new UserError("Give me an invite code or link to remove.");
+
+    const invites = await guild.invites.fetch().catch(() => null);
+    if (!invites) {
+      throw new UserError(
+        "I can't read the preview's invites — check that I have Manage Server there.",
+      );
+    }
+
+    const invite = invites.get?.(code) ?? null;
+    const record = locked.get(code) ?? null;
+    if (!invite && !record) throw new UserError(`There's no invite \`${code}\` in the preview.`);
+
+    if (invite && typeof invite.delete === "function") {
+      try {
+        await invite.delete(reason);
+      } catch (error) {
+        throw new UserError(`Discord wouldn't let me delete it — ${error.message}`);
+      }
+    }
+
+    locked.delete(code);
+    seen.delete(code);
+    save();
+
+    return { code, userId: record?.userId ?? null, url: record?.url ?? invite?.url ?? null };
+  }
+
   async function handleJoin(member) {
     const guild = member.guild;
     if (!guild || guild.id !== guildId) return { action: "ignored" };
@@ -151,6 +191,7 @@ export function createInviteGuard({ guildId, file = null } = {}) {
   return {
     createLocked,
     handleJoin,
+    remove,
     prime,
     get pending() {
       return locked.size;

@@ -130,6 +130,7 @@ the real server:
 | `/lock [channel] [reason]` | Stops `@everyone` talking in a channel | Manage Channels |
 | `/unlock [channel] [reason]` | Undoes a lock | Manage Channels |
 | `/create-invite [user_id]` | Creates a single-use invite to the **preview** server, optionally for one person only | Create Invite |
+| `/remove-invite code` | Deletes an invite to the **preview** server (code or full link) | Create Invite |
 | `/block-join user_id reason` | Stops someone using the preview's join button, with a reason they're shown | Moderate Members |
 | `/unblock-join user_id` | Lifts that block | Moderate Members |
 | `/blocked-joins` | Lists who is blocked and why | Moderate Members |
@@ -162,9 +163,10 @@ about joins:
 
 The bot also needs **Kick Members** in the preview for the wrong-person case.
 
-If an admin deletes a personal invite by hand, the next unrelated join can be
-mistaken for it — recreate the invite instead of deleting it, or accept the one
-false kick.
+Removing an invite by hand in Discord leaves the bot's record behind, which can
+turn the next unrelated join into a false kick. Use `/remove-invite <code>`
+instead: it deletes the invite in the preview *and* forgets the record, so a
+pending personal invite is cleaned up without that risk.
 
 ### Blocking someone from joining
 
