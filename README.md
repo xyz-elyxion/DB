@@ -130,6 +130,9 @@ the real server:
 | `/lock [channel] [reason]` | Stops `@everyone` talking in a channel | Manage Channels |
 | `/unlock [channel] [reason]` | Undoes a lock | Manage Channels |
 | `/create-invite [user_id]` | Creates a single-use invite to the **preview** server, optionally for one person only | Create Invite |
+| `/block-join user_id reason` | Stops someone using the preview's join button, with a reason they're shown | Moderate Members |
+| `/unblock-join user_id` | Lifts that block | Moderate Members |
+| `/blocked-joins` | Lists who is blocked and why | Moderate Members |
 
 Replies are private to the moderator. Ban, kick, timeout, warn and the rest are
 stored as numbered cases in `CASES_FILE` (`data/moderation.json` by default), so
@@ -162,6 +165,20 @@ The bot also needs **Kick Members** in the preview for the wrong-person case.
 If an admin deletes a personal invite by hand, the next unrelated join can be
 mistaken for it — recreate the invite instead of deleting it, or accept the one
 false kick.
+
+### Blocking someone from joining
+
+`/block-join` keeps a person in the preview but stops them moving to the real
+server with the `#join-server` button. The block is checked **before** the bot
+adds anyone to the main server, and the person sees the reason on the page after
+they approve the Discord prompt:
+
+> You're blocked from joining Main from the preview. Reason: raiding the preview
+
+`/unblock-join` lets them in again, and `/blocked-joins` lists every block with
+its reason. Blocks are stored in `JOIN_BLOCKS_FILE` (`data/join-blocks.json`), so
+restarting the bot doesn't clear them, and each block is logged as a case like
+any other moderation action.
 
 The bot checks rank before acting: it won't let you moderate yourself, the server
 owner, or someone whose top role is equal to or above yours, and it says so when
@@ -237,6 +254,7 @@ src/lib/preview.js     preview name and read-only overwrites
 src/lib/join.js        OAuth2 join flow, #join-server channel and embed
 src/lib/moderation.js  moderation commands, rank checks and case logging
 src/lib/invites.js     single-use preview invites and the wrong-person kick
+src/lib/joinblocks.js  people blocked from the preview -> main join flow
 src/lib/cases.js       JSON-backed case/warning store
 src/lib/duration.js    timeout duration parsing and formatting
 src/lib/messages.js    message splitting and webhook helpers

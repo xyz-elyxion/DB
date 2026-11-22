@@ -31,6 +31,7 @@ export const config = {
   modLogChannelId: process.env.MOD_LOG_CHANNEL_ID?.trim() || null,
   casesFile: process.env.CASES_FILE?.trim() || "data/moderation.json",
   invitesFile: process.env.INVITES_FILE?.trim() || "data/invites.json",
+  joinBlocksFile: process.env.JOIN_BLOCKS_FILE?.trim() || "data/join-blocks.json",
   port,
   publicUrls,
   joinPath: "/join/callback",

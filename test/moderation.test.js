@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCaseStore } from "../src/lib/cases.js";
+import { createJoinBlockStore } from "../src/lib/joinblocks.js";
 import { MAX_TIMEOUT_MS, formatDuration, parseDuration } from "../src/lib/duration.js";
 import {
   MOD_COMMANDS,
@@ -302,6 +303,73 @@ test("create-invite hands back the link and records who it was for", async () =>
   assert.equal(cases.get("g1", 1).type, "invite");
 });
 
+test("block-join keeps the reason and records a case", async () => {
+  const { guild } = moderationGuild();
+  const cases = createCaseStore();
+  const joinBlocks = createJoinBlockStore();
+
+  const interaction = interactionFor({
+    commandName: "block-join",
+    guild,
+    member: moderator(),
+    options: { user_id: "123456789012345678", reason: "raiding the preview" },
+  });
+
+  await runModerationCommand(interaction, { cases, joinBlocks });
+
+  const block = joinBlocks.get("g1", "123456789012345678");
+  assert.equal(block.reason, "raiding the preview");
+  assert.equal(block.moderatorId, "mod");
+  assert.match(interaction.replies[0].content, /can no longer join/);
+  assert.equal(cases.get("g1", 1).type, "block-join");
+});
+
+test("unblock-join lifts a block and says when there is none", async () => {
+  const { guild } = moderationGuild();
+  const cases = createCaseStore();
+  const joinBlocks = createJoinBlockStore();
+  joinBlocks.block({ guildId: "g1", userId: "123456789012345678", reason: "spam" });
+
+  const first = interactionFor({
+    commandName: "unblock-join",
+    guild,
+    member: moderator(),
+    options: { user_id: "123456789012345678" },
+  });
+  await runModerationCommand(first, { cases, joinBlocks });
+
+  assert.equal(joinBlocks.count, 0);
+  assert.match(first.replies[0].content, /again/);
+
+  const second = interactionFor({
+    commandName: "unblock-join",
+    guild,
+    member: moderator(),
+    options: { user_id: "123456789012345678" },
+  });
+  await runModerationCommand(second, { cases, joinBlocks });
+
+  assert.match(second.replies[0].content, /isn't blocked/);
+});
+
+test("blocked-joins lists who is blocked and why", async () => {
+  const { guild } = moderationGuild();
+  const joinBlocks = createJoinBlockStore();
+  joinBlocks.block({ guildId: "g1", userId: "123456789012345678", reason: "raiding the preview" });
+
+  const interaction = interactionFor({
+    commandName: "blocked-joins",
+    guild,
+    member: moderator(),
+  });
+
+  await runModerationCommand(interaction, { cases: createCaseStore(), joinBlocks });
+
+  assert.match(interaction.replies[0].content, /blocked from joining/);
+  assert.match(interaction.replies[0].content, /123456789012345678/);
+  assert.match(interaction.replies[0].content, /raiding the preview/);
+});
+
 test("unknown commands are left alone", async () => {
   const { guild } = moderationGuild();
   const interaction = interactionFor({ commandName: "ship", guild, member: moderator() });
@@ -317,6 +385,8 @@ test("the command set is complete and self-describing", () => {
     names.slice().sort(),
     [
       "ban",
+      "block-join",
+      "blocked-joins",
       "case",
       "clearwarnings",
       "create-invite",
@@ -326,6 +396,7 @@ test("the command set is complete and self-describing", () => {
       "slowmode",
       "timeout",
       "unban",
+      "unblock-join",
       "unlock",
       "untimeout",
       "warn",

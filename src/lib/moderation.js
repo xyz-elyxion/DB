@@ -24,6 +24,9 @@ const GUARDS = {
   clearwarnings: { bit: PermissionFlagsBits.ModerateMembers, label: "Moderate Members" },
   case: { bit: PermissionFlagsBits.ModerateMembers, label: "Moderate Members" },
   "create-invite": { bit: PermissionFlagsBits.CreateInstantInvite, label: "Create Invite" },
+  "block-join": { bit: PermissionFlagsBits.ModerateMembers, label: "Moderate Members" },
+  "unblock-join": { bit: PermissionFlagsBits.ModerateMembers, label: "Moderate Members" },
+  "blocked-joins": { bit: PermissionFlagsBits.ModerateMembers, label: "Moderate Members" },
   purge: { bit: PermissionFlagsBits.ManageMessages, label: "Manage Messages" },
   slowmode: { bit: PermissionFlagsBits.ManageChannels, label: "Manage Channels" },
   lock: { bit: PermissionFlagsBits.ManageChannels, label: "Manage Channels" },
@@ -43,6 +46,8 @@ const COLORS = {
   unlock: 0x57f287,
   slowmode: 0x5865f2,
   invite: 0x57f287,
+  "block-join": 0xed4245,
+  "unblock-join": 0x57f287,
 };
 
 const memberOption = (option) =>
@@ -185,11 +190,40 @@ export const MOD_COMMANDS = [
         .setName("user_id")
         .setDescription("Only this user may use it — anyone else who joins gets kicked"),
     ),
+  new SlashCommandBuilder()
+    .setName("block-join")
+    .setDescription("Stop someone joining the real server from the preview.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addStringOption((option) =>
+      option.setName("user_id").setDescription("Their user ID").setRequired(true),
+    )
+    .addStringOption((option) => reasonOption(option, true)),
+  new SlashCommandBuilder()
+    .setName("unblock-join")
+    .setDescription("Let someone join from the preview again.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addStringOption((option) =>
+      option.setName("user_id").setDescription("Their user ID").setRequired(true),
+    ),
+  new SlashCommandBuilder()
+    .setName("blocked-joins")
+    .setDescription("List everyone blocked from joining via the preview.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
 ];
 
 function cleanReason(value) {
   const text = (value ?? "").trim();
   return text ? text.slice(0, REASON_LIMIT) : "No reason given";
+}
+
+function readUserId(value) {
+  const userId = String(value ?? "").replace(/[<@!>]/g, "").trim();
+  if (!/^\d{16,20}$/.test(userId)) {
+    throw new UserError(
+      "That isn't a user ID. Turn on Developer Mode, right-click the person → **Copy User ID**.",
+    );
+  }
+  return userId;
 }
 
 function tagOf(user) {
@@ -316,14 +350,7 @@ const HANDLERS = {
   },
 
   async unban({ guild, options }) {
-    const raw = String(options.getString("user_id", true) ?? "");
-    const userId = raw.replace(/[<@!>]/g, "").trim();
-    if (!/^\d{16,20}$/.test(userId)) {
-      throw new UserError(
-        "That isn't a user ID. Turn on Developer Mode, right-click the person → **Copy User ID**.",
-      );
-    }
-
+    const userId = readUserId(options.getString("user_id", true));
     const reason = cleanReason(options.getString("reason"));
     try {
       await guild.bans.remove(userId, reason);
@@ -582,6 +609,58 @@ const HANDLERS = {
           ? `Personal preview invite (${record.code})`
           : `Preview invite (${record.code})`,
       },
+    };
+  },
+
+  async "block-join"({ guild, moderator, options, joinBlocks }) {
+    if (!joinBlocks) throw new UserError("Join blocking isn't running, so I can't save this.");
+
+    const userId = readUserId(options.getString("user_id", true));
+    const reason = cleanReason(options.getString("reason"));
+
+    joinBlocks.block({
+      guildId: guild.id,
+      userId,
+      reason,
+      moderatorId: moderator.id,
+    });
+
+    return {
+      message:
+        `🚫 <@${userId}> can no longer join **${guild.name}** from the preview.\n` +
+        `Reason: ${reason}`,
+      caseData: { type: "block-join", targetId: userId, reason },
+    };
+  },
+
+  async "unblock-join"({ guild, options, joinBlocks }) {
+    if (!joinBlocks) throw new UserError("Join blocking isn't running.");
+
+    const userId = readUserId(options.getString("user_id", true));
+    if (!joinBlocks.lift(guild.id, userId)) {
+      throw new UserError(`<@${userId}> isn't blocked from joining.`);
+    }
+
+    return {
+      message: `✅ <@${userId}> can join **${guild.name}** from the preview again.`,
+      caseData: { type: "unblock-join", targetId: userId, reason: "Block lifted" },
+    };
+  },
+
+  async "blocked-joins"({ guild, joinBlocks }) {
+    if (!joinBlocks) throw new UserError("Join blocking isn't running.");
+
+    const blocks = joinBlocks.list(guild.id);
+    if (blocks.length === 0) return { message: "Nobody is blocked from joining." };
+
+    const lines = blocks.slice(-15).map((entry) => `<@${entry.userId}> — ${entry.reason}`);
+    const extra = blocks.length > 15 ? `\n…and ${blocks.length - 15} more.` : "";
+
+    return {
+      message: `🚫 **${blocks.length}** blocked from joining:\n${lines.join("\n")}${extra}`.slice(
+        0,
+        1900,
+      ),
     };
   },
 };

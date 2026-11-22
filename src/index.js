@@ -2,7 +2,9 @@ import { Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
 import { assertConfig, config } from "./config.js";
 import { applyPlan } from "./lib/builder.js";
 import { createCaseStore } from "./lib/cases.js";
+import { UserError } from "./lib/errors.js";
 import { createInviteGuard } from "./lib/invites.js";
+import { createJoinBlockStore } from "./lib/joinblocks.js";
 import {
   createJoinFlow,
   ensureJoinChannel,
@@ -44,6 +46,9 @@ const cases = createCaseStore({ file: config.casesFile });
 // Personal preview invites, and the guard that kicks anyone who uses someone
 // else's link.
 const inviteGuard = createInviteGuard({ guildId: config.targetId, file: config.invitesFile });
+
+// People who may stay in the preview but never join the real server.
+const joinBlocks = createJoinBlockStore({ file: config.joinBlocksFile });
 
 // The preview guild, once the bot has connected.
 let previewGuild = null;
@@ -93,6 +98,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     logChannelId: config.modLogChannelId,
     previewGuild,
     invites: inviteGuard,
+    joinBlocks,
   });
 });
 
@@ -159,6 +165,14 @@ async function setUpJoinFlow(source, target, readyClient) {
     token: config.token,
     sourceId: source.id,
     redirectUris: config.redirectUris,
+    checkJoin: async (user) => {
+      const block = joinBlocks.get(source.id, user.id);
+      if (block) {
+        throw new UserError(
+          `You're blocked from joining ${source.name} from the preview. Reason: ${block.reason}`,
+        );
+      }
+    },
     onJoined: async (user) => {
       await target.members.kick(user.id, "Joined the real server");
       console.log(`Moved ${user.username} from the preview into ${source.name}.`);

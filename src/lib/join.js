@@ -10,6 +10,8 @@ import {
   Routes,
 } from "discord.js";
 
+import { UserError } from "./errors.js";
+
 const API = "https://discord.com/api/v10";
 export const JOIN_CHANNEL_NAME = "join-server";
 const MAX_BUTTONS = 5;
@@ -60,6 +62,7 @@ export function createJoinFlow({
   sourceId,
   redirectUris,
   onJoined,
+  checkJoin = null,
 }) {
   const uris = [...new Set(redirectUris ?? [])].filter(Boolean);
   if (uris.length === 0) throw new Error("no redirect URI configured");
@@ -132,6 +135,11 @@ export function createJoinFlow({
 
     const tokens = await exchangeCode(code, redirectUri);
     const user = await identify(tokens.access_token);
+
+    // Blocks are checked before the bot adds anyone, so a blocked person never
+    // gets into the real server at all.
+    if (checkJoin) await checkJoin(user);
+
     await addToSource(user.id, tokens.access_token);
     await onJoined(user);
     return user;
@@ -178,6 +186,11 @@ export function startJoinServer({ flow, port, path = "/join/callback" }) {
         ),
       );
     } catch (failure) {
+      if (failure instanceof UserError) {
+        send(403, page("You can't join", escapeHtml(failure.message)));
+        return;
+      }
+
       console.error("Join flow failed:", failure.message);
       send(
         500,
