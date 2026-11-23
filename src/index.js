@@ -28,6 +28,13 @@ try {
 
 // GuildMessages powers XP even when message mirroring is off; MessageContent only
 // controls whether the text itself is readable.
+// Says exactly what this process read, because the Developer Portal toggle alone
+// does nothing — the env var has to reach the running bot.
+console.log(
+  `Message mirroring: ${config.enableMessageContent ? "on" : "off"} ` +
+    `(ENABLE_MESSAGE_CONTENT=${JSON.stringify(config.messageContentEnv)}).`,
+);
+
 const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
 if (config.enableMessageContent) {
   intents.push(GatewayIntentBits.MessageContent);
@@ -320,7 +327,10 @@ client.once(Events.ClientReady, async (readyClient) => {
   if (!config.enableMessageContent) {
     console.warn(
       "ENABLE_MESSAGE_CONTENT is off, so messages are not mirrored — only the server structure. " +
-        "Enable the intent in the Developer Portal, set ENABLE_MESSAGE_CONTENT=true, and restart.",
+        "Turn the intent on in the Developer Portal, set ENABLE_MESSAGE_CONTENT=true in the " +
+        "environment the bot actually runs in (the Portal toggle alone is not enough), and restart. " +
+        `This process read ${JSON.stringify(config.messageContentEnv)} — null means the variable ` +
+        "never reached it.",
     );
   }
 

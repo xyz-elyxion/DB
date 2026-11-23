@@ -57,6 +57,13 @@ Message text is a privileged intent:
    **Message Content**.
 2. Set `ENABLE_MESSAGE_CONTENT=true` in `.env` and restart.
 
+On startup the bot prints `Message mirroring: on/off (ENABLE_MESSAGE_CONTENT=…)`
+with the raw value it actually read. If that says `off` while the Portal toggle is
+on, the variable isn't reaching the process: set it in your host's environment
+page as well as `.env` (the file is only read from the folder the bot starts in),
+then restart. Quoted values like `ENABLE_MESSAGE_CONTENT="true"` are understood,
+as are `on`, `yes`, `1` and `enabled`.
+
 New messages are reposted in the matching target channel through a `Server
 mirror` webhook, so they keep the author's name, avatar and attachments. Edits
 and deletions are replayed onto the mirrored copy. Mentions are sent inert (no

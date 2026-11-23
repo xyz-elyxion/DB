@@ -1,8 +1,24 @@
 import "dotenv/config";
 
-function readBoolean(value, fallback = false) {
-  if (value === undefined || value === "") return fallback;
-  return /^(1|true|yes|on)$/i.test(value.trim());
+/**
+ * Forgiving on purpose: dashboards hand us "true", "TRUE", "\"true\"", "yes",
+ * "on" or "1", and a stray pair of quotes used to silently mean "off".
+ */
+export function readBoolean(value, fallback = false) {
+  if (value === undefined || value === null) return fallback;
+
+  const text = String(value)
+    .trim()
+    .replace(/^["']+|["']+$/g, "")
+    .trim()
+    .toLowerCase();
+
+  if (text === "") return fallback;
+  if (["1", "t", "y", "true", "yes", "on", "enabled", "enable"].includes(text)) return true;
+  if (["0", "f", "n", "false", "no", "off", "disabled", "disable"].includes(text)) {
+    return false;
+  }
+  return fallback;
 }
 
 function readNumber(value, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
@@ -30,6 +46,7 @@ export const config = {
   sourceId: process.env.SOURCE_GUILD_ID?.trim() || null,
   targetId: process.env.TARGET_GUILD_ID?.trim() || null,
   enableMessageContent: readBoolean(process.env.ENABLE_MESSAGE_CONTENT),
+  messageContentEnv: process.env.ENABLE_MESSAGE_CONTENT ?? null,
   // Member join events need the privileged Server Members intent; they power
   // the one-person preview invites.
   enableMemberEvents: readBoolean(process.env.ENABLE_MEMBER_INTENTS, true),
