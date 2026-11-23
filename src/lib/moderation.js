@@ -328,7 +328,7 @@ function caseText(record) {
   return `\`#${record.id}\` • **${record.type}** • ${target} • <@${record.moderatorId}> • ${record.reason}`;
 }
 
-async function sendLog(guild, logChannelId, record) {
+export async function postCase(guild, logChannelId, record) {
   const channel = logChannelId
     ? await guild.channels.fetch(logChannelId).catch(() => null)
     : ([...guild.channels.cache.values()].find(
@@ -738,7 +738,7 @@ export async function runModerationCommand(interaction, context = {}) {
       : null;
 
     await interaction.reply({ content: result.message, flags: MessageFlags.Ephemeral });
-    if (record) await sendLog(guild, logChannelId, record);
+    if (record) await postCase(guild, logChannelId, record);
   } catch (error) {
     const message =
       error instanceof UserError ? error.message : `That failed — ${describeError(error)}`;

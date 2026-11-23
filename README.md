@@ -4,10 +4,11 @@ A Discord bot that keeps a **preview server** in step with a **main server**.
 It copies everything that exists when it starts, then mirrors every change as it
 happens — channels, roles, permissions, emojis, server settings and messages.
 
-The same bot is also a moderation bot for the main server: `/ban`, `/kick`,
-`/timeout`, `/warn`, `/purge`, `/lock` and friends. Mirroring needs no commands —
-the two servers come from `.env` — but moderation is done with slash commands,
-which the bot registers in the main server when it starts.
+The same bot is also a moderation bot and a levelling bot for the main server:
+`/ban`, `/kick`, `/timeout`, `/warn`, `/purge`, `/lock` and friends, plus XP,
+`/rank`, `/leaderboard`, level-up messages and role rewards. Mirroring needs no
+commands — the two servers come from `.env` — but the rest is done with slash
+commands, which the bot registers in the main server when it starts.
 
 ## Setup
 
@@ -32,6 +33,9 @@ which the bot registers in the main server when it starts.
    PUBLIC_URLS=https://45tapl8dqb.apps.bot-hosting.cloud,https://limey-discord.apps.bot-hosting.cloud
    MOD_LOG_CHANNEL_ID=                  # optional: where moderation cases are posted
    CASES_FILE=data/moderation.json      # optional: where warnings are stored
+   XP_MIN_PER_MESSAGE=15                # optional: levelling rates
+   XP_MAX_PER_MESSAGE=25
+   XP_COOLDOWN_SECONDS=60
    ```
 
 4. **Run it**:
@@ -190,6 +194,40 @@ Two permissions in the Developer Portal matter here: the invite link needs the
 `applications.commands` scope (the default bot invite includes it), and the bot
 needs *Moderate Members* in addition to the mirroring permissions above.
 
+## Levels
+
+Members earn XP for chatting in the **main** server. Every message is worth
+15–25 XP at most once every 60 seconds per member; both are configurable with
+`XP_MIN_PER_MESSAGE`, `XP_MAX_PER_MESSAGE` and `XP_COOLDOWN_SECONDS`. Bots,
+webhook posts and DMs never earn XP, and the preview server never does either.
+
+Level `n` needs `5n² + 50n + 100` more XP than level `n − 1`, so level 1 is 155
+XP, level 2 is 375 total, level 3 is 660 total, and so on. XP, message counts,
+role rewards and channel settings are stored in `LEVELS_FILE`
+(`data/levels.json`), so ranks and cooldowns survive restarts.
+
+| Command | What it does | Needs |
+| --- | --- | --- |
+| `/rank [member] [public]` | Level, total XP, messages and server rank — private unless `public` is set | — |
+| `/leaderboard [page]` | The top 10 members by XP, 10 per page | — |
+| `/level-settings` | The rates, no-XP channels, announce channel and role rewards | Manage Server |
+| `/level-toggle [enabled]` | Turns XP gain on or off; levels are kept | Manage Server |
+| `/level-announce [channel]` | Where level-up messages go — leave the channel empty to turn them off | Manage Server |
+| `/no-xp-channel channel` | Toggles a channel between giving and not giving XP | Manage Server |
+| `/level-role level [role]` | Hands out a role at that level — leave the role empty to remove the reward | Manage Server |
+| `/level-rewards` | Lists every role reward | Manage Server |
+| `/level-xp member amount` | Adds XP, or takes it away with a negative amount | Manage Server |
+| `/set-level member level` | Puts someone at an exact level | Manage Server |
+| `/reset-xp member` | Wipes someone's XP and message count | Manage Server |
+
+When someone levels up the bot posts `🎉 @member reached **level N**!` in the
+channel they were talking in — or in the announce channel, if one is set — and
+pings only that member. Role rewards are additive: reaching a level gives the
+role, and lower-level rewards stay put. Staff XP changes apply role rewards
+immediately and are logged as cases like any other staff action. The bot needs
+*Send Messages* where it announces and *Manage Roles* (with its role above the
+reward roles) to hand them out.
+
 ## What is mirrored
 
 When it starts:
@@ -238,7 +276,7 @@ stale channel behind.
 ## Development
 
 ```bash
-npm test      # node:test suite for the snapshot reader, planner, executor, mirror, live sync and moderation
+npm test      # node:test suite for mirroring, moderation, invites, join flow and levelling
 npm run dev   # restart on file changes
 ```
 
@@ -255,6 +293,8 @@ src/lib/mirror.js      message mirroring through webhooks
 src/lib/preview.js     preview name and read-only overwrites
 src/lib/join.js        OAuth2 join flow, #join-server channel and embed
 src/lib/moderation.js  moderation commands, rank checks and case logging
+src/lib/levels.js      XP curve, per-member XP and level settings store
+src/lib/levelcommands.js  /rank, /leaderboard and the level settings commands
 src/lib/invites.js     single-use preview invites and the wrong-person kick
 src/lib/joinblocks.js  people blocked from the preview -> main join flow
 src/lib/cases.js       JSON-backed case/warning store

@@ -11,8 +11,10 @@ import {
   resolveApplicationId,
   startJoinServer,
 } from "./lib/join.js";
+import { createLevelStore } from "./lib/levels.js";
+import { LEVEL_COMMANDS, runLevelCommand } from "./lib/levelcommands.js";
 import { createLiveSync } from "./lib/live.js";
-import { MOD_COMMANDS, runModerationCommand } from "./lib/moderation.js";
+import { MOD_COMMANDS, postCase, runModerationCommand } from "./lib/moderation.js";
 import { planReplication } from "./lib/planner.js";
 import { previewName } from "./lib/preview.js";
 import { snapshotGuild } from "./lib/snapshot.js";
@@ -24,9 +26,11 @@ try {
   process.exit(1);
 }
 
-const intents = [GatewayIntentBits.Guilds];
+// GuildMessages powers XP even when message mirroring is off; MessageContent only
+// controls whether the text itself is readable.
+const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
 if (config.enableMessageContent) {
-  intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
+  intents.push(GatewayIntentBits.MessageContent);
 }
 if (config.enableMemberEvents) {
   intents.push(GatewayIntentBits.GuildMembers);
@@ -49,6 +53,15 @@ const inviteGuard = createInviteGuard({ guildId: config.targetId, file: config.i
 
 // People who may stay in the preview but never join the real server.
 const joinBlocks = createJoinBlockStore({ file: config.joinBlocksFile });
+
+// XP and levels for the main server, persisted so ranks survive restarts.
+const levels = createLevelStore({
+  file: config.levelsFile,
+  guildId: config.sourceId,
+  minXp: config.xpMin,
+  maxXp: config.xpMax,
+  cooldownMs: config.xpCooldownSeconds * 1000,
+});
 
 // The preview guild, once the bot has connected.
 let previewGuild = null;
@@ -93,6 +106,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
+  const handledByLevels = await runLevelCommand(interaction, {
+    levels,
+    cases,
+    logCase: (record) => postCase(interaction.guild, config.modLogChannelId, record),
+    syncRewards: syncLevelRoles,
+  });
+  if (handledByLevels) return;
+
   await runModerationCommand(interaction, {
     cases,
     logChannelId: config.modLogChannelId,
@@ -100,6 +121,60 @@ client.on(Events.InteractionCreate, async (interaction) => {
     invites: inviteGuard,
     joinBlocks,
   });
+});
+
+/** Hand out every role reward the member has now reached (never removes any). */
+async function syncLevelRoles(guild, userId, level) {
+  const roleIds = levels.rolesFor(guild.id, level);
+  if (roleIds.length === 0 || !guild) return;
+
+  let member = guild.members?.cache?.get?.(userId) ?? null;
+  if (!member && typeof guild.members?.fetch === "function") {
+    member = await guild.members.fetch(userId).catch(() => null);
+  }
+  if (typeof member?.roles?.add !== "function") return;
+
+  for (const roleId of roleIds) {
+    await member.roles.add(roleId, `Level ${level} reward`).catch((error) => {
+      console.error(`Could not give the level ${level} role (${roleId}):`, error.message);
+    });
+  }
+}
+
+async function celebrateLevelUp(message, result) {
+  const guild = message.guild;
+  const settings = levels.settings(guild.id);
+  const roleIds = levels.rolesFor(guild.id, result.level);
+
+  if (roleIds.length > 0) await syncLevelRoles(guild, result.userId, result.level);
+
+  const channel = settings.announceChannelId
+    ? await guild.channels.fetch(settings.announceChannelId).catch(() => null)
+    : message.channel;
+  if (typeof channel?.send !== "function") return;
+
+  const lines = [`🎉 <@${result.userId}> reached **level ${result.level}**!`];
+  if (roleIds.length > 0) {
+    lines.push(`Unlocked ${roleIds.map((id) => `<@&${id}>`).join(", ")}.`);
+  }
+
+  await channel
+    .send({ content: lines.join("\n"), allowedMentions: { users: [result.userId] } })
+    .catch((error) => console.error("Could not post a level-up message:", error.message));
+}
+
+// XP is counted in the main server only; the preview stays read-only.
+let levelsReady = false;
+
+client.on(Events.MessageCreate, async (message) => {
+  if (!levelsReady) return;
+
+  try {
+    const result = levels.handleMessage(message);
+    if (result?.leveledUp) await celebrateLevelUp(message, result);
+  } catch (error) {
+    console.error("Level system failed:", error.message);
+  }
 });
 
 // Nothing is mirrored until the startup sync has run, so half-built servers
@@ -230,15 +305,17 @@ client.once(Events.ClientReady, async (readyClient) => {
   previewGuild = target;
   await inviteGuard.prime(target);
 
+  const commands = [...MOD_COMMANDS, ...LEVEL_COMMANDS];
   try {
-    await source.commands.set(MOD_COMMANDS.map((command) => command.toJSON()));
-    console.log(`Registered ${MOD_COMMANDS.length} moderation command(s) in ${source.name}.`);
+    await source.commands.set(commands.map((command) => command.toJSON()));
+    console.log(`Registered ${commands.length} command(s) in ${source.name}.`);
   } catch (error) {
-    console.error("Could not register the moderation commands:", error.message);
+    console.error("Could not register the commands:", error.message);
   }
 
   await live.attach(source, target);
   liveReady = true;
+  levelsReady = true;
 
   if (!config.enableMessageContent) {
     console.warn(

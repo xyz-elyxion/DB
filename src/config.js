@@ -5,6 +5,12 @@ function readBoolean(value, fallback = false) {
   return /^(1|true|yes|on)$/i.test(value.trim());
 }
 
+function readNumber(value, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const number = Number.parseInt(value ?? "", 10);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
 const port =
   Number.parseInt(process.env.SERVER_PORT ?? process.env.PORT ?? "3000", 10) || 3000;
 
@@ -32,6 +38,10 @@ export const config = {
   casesFile: process.env.CASES_FILE?.trim() || "data/moderation.json",
   invitesFile: process.env.INVITES_FILE?.trim() || "data/invites.json",
   joinBlocksFile: process.env.JOIN_BLOCKS_FILE?.trim() || "data/join-blocks.json",
+  levelsFile: process.env.LEVELS_FILE?.trim() || "data/levels.json",
+  xpMin: readNumber(process.env.XP_MIN_PER_MESSAGE, 15, { max: 10_000 }),
+  xpMax: readNumber(process.env.XP_MAX_PER_MESSAGE, 25, { max: 10_000 }),
+  xpCooldownSeconds: readNumber(process.env.XP_COOLDOWN_SECONDS, 60, { max: 86_400 }),
   port,
   publicUrls,
   joinPath: "/join/callback",
