@@ -45,7 +45,8 @@ export const config = {
   token: process.env.DISCORD_TOKEN?.trim() ?? "",
   sourceId: process.env.SOURCE_GUILD_ID?.trim() || null,
   targetId: process.env.TARGET_GUILD_ID?.trim() || null,
-  enableMessageContent: readBoolean(process.env.ENABLE_MESSAGE_CONTENT),
+  // On by default: set ENABLE_MESSAGE_CONTENT=false to mirror only the structure.
+  enableMessageContent: readBoolean(process.env.ENABLE_MESSAGE_CONTENT, true),
   messageContentEnv: process.env.ENABLE_MESSAGE_CONTENT ?? null,
   // Member join events need the privileged Server Members intent; they power
   // the one-person preview invites.

@@ -14,6 +14,13 @@ test("quoted and padded values still count as on", () => {
   }
 });
 
+test("mirroring is on unless it is explicitly turned off", () => {
+  assert.equal(readBoolean(undefined, true), true);
+  assert.equal(readBoolean("", true), true);
+  assert.equal(readBoolean("false", true), false);
+  assert.equal(readBoolean("0", true), false);
+});
+
 test("off values are off, and unknown values fall back", () => {
   for (const value of ["0", "false", "FALSE", " no ", "off", "disabled"]) {
     assert.equal(readBoolean(value), false, `${JSON.stringify(value)} should be off`);

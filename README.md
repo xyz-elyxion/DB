@@ -28,7 +28,7 @@ commands, which the bot registers in the main server when it starts.
    DISCORD_TOKEN=your-bot-token
    SOURCE_GUILD_ID=123456789012345678   # the "main" server
    TARGET_GUILD_ID=987654321098765432   # the preview server
-   ENABLE_MESSAGE_CONTENT=false         # true to mirror messages too
+   ENABLE_MESSAGE_CONTENT=true          # mirroring messages (on by default)
    CLIENT_SECRET=                       # optional: enables #join-server
    PUBLIC_URLS=https://45tapl8dqb.apps.bot-hosting.cloud,https://limey-discord.apps.bot-hosting.cloud
    MOD_LOG_CHANNEL_ID=                  # optional: where moderation cases are posted
@@ -51,11 +51,13 @@ live. Server IDs are right-click → *Copy Server ID* with Developer Mode on.
 
 ### Mirroring messages
 
-Message text is a privileged intent:
+Messages are mirrored by default. Message text is a privileged intent, so the
+Portal side has to be on:
 
 1. Developer Portal → your app → *Bot* → *Privileged Gateway Intents* → enable
    **Message Content**.
-2. Set `ENABLE_MESSAGE_CONTENT=true` in `.env` and restart.
+2. Restart. If you cannot enable that intent, set
+   `ENABLE_MESSAGE_CONTENT=false` and the bot mirrors only the structure.
 
 On startup the bot prints `Message mirroring: on/off (ENABLE_MESSAGE_CONTENT=…)`
 with the raw value it actually read. If that says `off` while the Portal toggle is

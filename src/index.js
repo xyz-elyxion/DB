@@ -357,8 +357,9 @@ client.login(config.token).catch((error) => {
   console.error("Login failed:", error.message);
   if (/disallowed intent/i.test(error.message)) {
     console.error(
-      "Enable **Server Members** (and Message Content, if you mirror messages) under " +
-        "Developer Portal → Bot → Privileged Gateway Intents, or set ENABLE_MEMBER_INTENTS=false.",
+      "Enable **Server Members** (and Message Content, since mirroring messages is on by " +
+        "default) under Developer Portal → Bot → Privileged Gateway Intents, or set " +
+        "ENABLE_MEMBER_INTENTS=false / ENABLE_MESSAGE_CONTENT=false.",
     );
   }
   process.exit(1);
