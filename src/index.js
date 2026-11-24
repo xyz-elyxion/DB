@@ -2,6 +2,8 @@ import { Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
 import { assertConfig, config } from "./config.js";
 import { applyPlan } from "./lib/builder.js";
 import { createCaseStore } from "./lib/cases.js";
+import { COUNTING_COMMANDS, runCountingCommand } from "./lib/countingcommands.js";
+import { createCountingStore } from "./lib/counting.js";
 import { UserError } from "./lib/errors.js";
 import { createInviteGuard } from "./lib/invites.js";
 import { createJoinBlockStore } from "./lib/joinblocks.js";
@@ -70,6 +72,9 @@ const levels = createLevelStore({
   cooldownMs: config.xpCooldownSeconds * 1000,
 });
 
+// The counting channel, saved so a restart doesn't lose the chain.
+const counting = createCountingStore({ file: config.countingFile, guildId: config.sourceId });
+
 // The preview guild, once the bot has connected.
 let previewGuild = null;
 
@@ -121,6 +126,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
   });
   if (handledByLevels) return;
 
+  const handledByCounting = await runCountingCommand(interaction, { counting });
+  if (handledByCounting) return;
+
   await runModerationCommand(interaction, {
     cases,
     logChannelId: config.modLogChannelId,
@@ -170,6 +178,38 @@ async function celebrateLevelUp(message, result) {
     .catch((error) => console.error("Could not post a level-up message:", error.message));
 }
 
+// Counting: ✅ on the next number, ❌ and a reset notice on a broken chain.
+async function handleCounting(message) {
+  let result;
+  try {
+    result = counting.handleMessage(message);
+  } catch (error) {
+    console.error("Counting failed:", error.message);
+    return;
+  }
+  if (result.action === "ignored") return;
+
+  if (result.action === "counted") {
+    await message.react("✅").catch(() => {});
+    return;
+  }
+
+  await message.react("❌").catch(() => {});
+  if (typeof message.channel?.send !== "function") return;
+
+  const best = result.record > 0 ? ` Best so far: **${result.record}**.` : "";
+  const text =
+    result.reason === "same-user"
+      ? `❌ <@${result.ruinedBy}> can't count twice in a row — **${result.got}** was right, ` +
+        `but the chain starts again at **1**.${best}`
+      : `❌ <@${result.ruinedBy}> posted **${result.got}** when the next number was ` +
+        `**${result.expected}**, so the chain starts again at **1**.${best}`;
+
+  await message.channel
+    .send({ content: text, allowedMentions: { users: [result.ruinedBy] } })
+    .catch((error) => console.error("Could not post the counting reset:", error.message));
+}
+
 // XP is counted in the main server only; the preview stays read-only.
 let levelsReady = false;
 
@@ -182,6 +222,8 @@ client.on(Events.MessageCreate, async (message) => {
   } catch (error) {
     console.error("Level system failed:", error.message);
   }
+
+  await handleCounting(message);
 });
 
 // Nothing is mirrored until the startup sync has run, so half-built servers
@@ -312,7 +354,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   previewGuild = target;
   await inviteGuard.prime(target);
 
-  const commands = [...MOD_COMMANDS, ...LEVEL_COMMANDS];
+  const commands = [...MOD_COMMANDS, ...LEVEL_COMMANDS, ...COUNTING_COMMANDS];
   try {
     await source.commands.set(commands.map((command) => command.toJSON()));
     console.log(`Registered ${commands.length} command(s) in ${source.name}.`);

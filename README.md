@@ -36,6 +36,7 @@ commands, which the bot registers in the main server when it starts.
    XP_MIN_PER_MESSAGE=15                # optional: levelling rates
    XP_MAX_PER_MESSAGE=25
    XP_COOLDOWN_SECONDS=60
+   COUNTING_FILE=data/counting.json     # optional: counting channel state
    ```
 
 4. **Run it**:
@@ -238,6 +239,29 @@ role, and lower-level rewards stay put. Staff XP changes apply role rewards
 immediately and are logged as cases like any other staff action. The bot needs
 *Send Messages* where it announces and *Manage Roles* (with its role above the
 reward roles) to hand them out.
+
+## Counting
+
+`/counting-setup channel:#counting` turns one channel into a group counting
+game. People take turns posting the next number: after **7** comes **8**, and
+nobody may post twice in a row. Every correct number gets a ✅ reaction.
+
+A wrong number — or the same person twice in a row — gets a ❌ and a short
+notice saying what the next number was, then the chain starts again at **1**.
+The best number ever reached is kept, so neither a reset nor a restart loses it.
+Messages that aren't a plain number are left alone, and bots and webhooks never
+count.
+
+| Command | What it does | Needs |
+| --- | --- | --- |
+| `/counting-setup channel` | Picks the channel and starts at 1 (switching channels starts over) | Manage Server |
+| `/counting-disable` | Stops the game and keeps the record | Manage Server |
+| `/counting-reset` | Starts again at 1, keeping the record | Manage Server |
+| `/counting-stats` | Current number, next number, best and the last counter | — |
+
+State lives in `COUNTING_FILE` (`data/counting.json`), so the chain survives a
+restart. The bot needs *Add Reactions* and *Send Messages* in that channel, and
+counting reads message text, so it only works while message mirroring is on.
 
 ## What is mirrored
 

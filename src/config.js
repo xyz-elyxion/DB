@@ -57,6 +57,7 @@ export const config = {
   invitesFile: process.env.INVITES_FILE?.trim() || "data/invites.json",
   joinBlocksFile: process.env.JOIN_BLOCKS_FILE?.trim() || "data/join-blocks.json",
   levelsFile: process.env.LEVELS_FILE?.trim() || "data/levels.json",
+  countingFile: process.env.COUNTING_FILE?.trim() || "data/counting.json",
   xpMin: readNumber(process.env.XP_MIN_PER_MESSAGE, 15, { max: 10_000 }),
   xpMax: readNumber(process.env.XP_MAX_PER_MESSAGE, 25, { max: 10_000 }),
   xpCooldownSeconds: readNumber(process.env.XP_COOLDOWN_SECONDS, 60, { max: 86_400 }),
