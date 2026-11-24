@@ -4,6 +4,7 @@ import { splitContent, webhookName } from "./messages.js";
 const MIRRORED_CHANNEL_TYPES = new Set([ChannelType.GuildText, ChannelType.GuildAnnouncement]);
 const HOOK_NAME = "Server mirror";
 const MAX_FILES = 10;
+export const MAX_EMBEDS = 10;
 
 /** Channel types whose messages can be mirrored into the other server. */
 export function canMirrorChannel(channel) {
@@ -33,17 +34,19 @@ export function findMirrorChannel(sourceChannel, targetGuild) {
   return matches[0];
 }
 
-/** Everything that should not be forwarded: bots, webhooks, system notes, noise. */
+/**
+ * Anything worth forwarding: people, other bots and webhook posts, as long as
+ * there is text, an attachment or an embed to show. System notes are not.
+ */
 export function shouldMirror(message) {
   if (!message || !message.guild) return false;
-  if (message.system || message.webhookId) return false;
-  if (message.author?.bot) return false;
-  if (message.member?.user?.bot) return false;
+  if (message.system) return false;
   if (!canMirrorChannel(message.channel)) return false;
 
   const hasContent = Boolean(message.content && message.content.trim().length > 0);
   const hasFiles = (message.attachments?.size ?? 0) > 0;
-  return hasContent || hasFiles;
+  const hasEmbeds = (message.embeds?.length ?? 0) > 0;
+  return hasContent || hasFiles || hasEmbeds;
 }
 
 async function webhookFor(channel, client, hooks) {
@@ -69,12 +72,15 @@ export function webhookPayload(message, content, withFiles = false) {
   const files = withFiles
     ? [...(message.attachments?.values?.() ?? [])].slice(0, MAX_FILES).map((file) => file.url)
     : [];
+  // Embeds (mostly bot output) ride along with the first post only.
+  const embeds = withFiles ? [...(message.embeds ?? [])].slice(0, MAX_EMBEDS) : [];
 
   return {
     content: content ?? "",
     username: webhookName(message.member ?? { user: message.author }),
     avatarURL: message.author?.displayAvatarURL?.({ size: 128 }) ?? undefined,
     files,
+    embeds,
     allowedMentions: { parse: [] },
   };
 }
@@ -91,6 +97,8 @@ export async function mirrorMessage({ message, targetGuild, client, hooks = new 
   if (!targetChannel) return { mirrored: false, reason: "no matching channel" };
 
   const chunks = splitContent(message.content);
+  // A bot message that is nothing but an embed has no text to split.
+  if (chunks.length === 0) chunks.push("");
   const messageIds = [];
   const sendAll = async (webhook) => {
     const [first, ...rest] = chunks;

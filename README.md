@@ -67,8 +67,10 @@ then restart. Quoted values like `ENABLE_MESSAGE_CONTENT="true"` are understood,
 as are `on`, `yes`, `1` and `enabled`.
 
 New messages are reposted in the matching target channel through a `Server
-mirror` webhook, so they keep the author's name, avatar and attachments. Edits
-and deletions are replayed onto the mirrored copy. Mentions are sent inert (no
+mirror` webhook, so they keep the author's name, avatar, attachments and embeds.
+Messages from other bots and webhook posts are copied too (a bot's embed-only
+post is forwarded as the embed); only Discord's own system notes are skipped.
+Edits and deletions are replayed onto the mirrored copy. Mentions are sent inert (no
 pings) and messages are split at Discord's 2000-character limit. Without the
 intent, the bot mirrors the server structure only.
 
@@ -256,7 +258,7 @@ While it runs:
 | Role deleted | The mirrored role is deleted |
 | Emoji added, renamed, removed | Same emoji added/renamed/removed |
 | Server name, icon, AFK/system channel, verification level, filter, notifications | Applied to the preview server |
-| Message sent, edited, deleted | Reposted, edited and deleted through the webhook |
+| Message sent, edited, deleted (people, bots, webhooks) | Reposted with text, files and embeds, then edited and deleted through the webhook |
 
 Matching is by name (and type for channels), so re-running and restarting are
 safe: existing objects are updated rather than duplicated.

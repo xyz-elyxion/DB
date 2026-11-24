@@ -37,7 +37,13 @@ function fakeGuild(channels) {
   return { channels: { cache: new Map(channels.map((channel) => [channel.id, channel])) } };
 }
 
-function fakeMessage({ channel, content = "hello there", bot = false, attachments = new Map() }) {
+function fakeMessage({
+  channel,
+  content = "hello there",
+  bot = false,
+  attachments = new Map(),
+  embeds = [],
+}) {
   return {
     guild: { id: "1000" },
     system: false,
@@ -45,6 +51,7 @@ function fakeMessage({ channel, content = "hello there", bot = false, attachment
     channel,
     content,
     attachments,
+    embeds,
     author: {
       id: "u1",
       bot,
@@ -76,16 +83,16 @@ test("the channel in the matching category wins", () => {
   assert.equal(findMirrorChannel(source, fakeGuild([elsewhere, inCategory])), inCategory);
 });
 
-test("bots, webhooks, system notes and empty messages are ignored", () => {
+test("bots and webhook posts are copied, system notes and empty messages are not", () => {
   const channel = fakeChannel();
 
   assert.equal(shouldMirror(fakeMessage({ channel })), true);
-  assert.equal(shouldMirror(fakeMessage({ channel, bot: true })), false);
+  assert.equal(shouldMirror(fakeMessage({ channel, bot: true })), true);
   assert.equal(shouldMirror(fakeMessage({ channel, content: "   " })), false);
 
   const webhookMessage = fakeMessage({ channel });
   webhookMessage.webhookId = "w1";
-  assert.equal(shouldMirror(webhookMessage), false);
+  assert.equal(shouldMirror(webhookMessage), true);
 
   const systemMessage = fakeMessage({ channel });
   systemMessage.system = true;
@@ -112,6 +119,35 @@ test("a new message is reposted through a webhook as its author", async () => {
   assert.equal(target.hook.sends[0].username, "Ada");
   assert.equal(target.hook.sends[0].avatarURL, "https://cdn.example/ada.png");
   assert.deepEqual(target.hook.sends[0].allowedMentions, { parse: [] });
+});
+
+test("an embed-only bot message is posted with its embeds", async () => {
+  const target = fakeChannel();
+  const embed = { title: "Build finished", description: "All green" };
+  const message = fakeMessage({
+    channel: fakeChannel(),
+    content: "",
+    bot: true,
+    embeds: [embed],
+  });
+
+  const result = await mirrorMessage({ message, targetGuild: fakeGuild([target]), client: {} });
+
+  assert.equal(result.mirrored, true);
+  assert.equal(target.hook.sends.length, 1);
+  assert.equal(target.hook.sends[0].content, "");
+  assert.deepEqual(target.hook.sends[0].embeds, [embed]);
+});
+
+test("bot text and its embeds are copied in one post", async () => {
+  const target = fakeChannel();
+  const embed = { title: "Now playing" };
+  const message = fakeMessage({ channel: fakeChannel(), content: "track 3", bot: true, embeds: [embed] });
+
+  await mirrorMessage({ message, targetGuild: fakeGuild([target]), client: {} });
+
+  assert.equal(target.hook.sends[0].content, "track 3");
+  assert.deepEqual(target.hook.sends[0].embeds, [embed]);
 });
 
 test("attachments are forwarded as links on the first message", async () => {

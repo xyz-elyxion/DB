@@ -65,9 +65,9 @@ export async function copyChannelMessages({ sourceChannel, targetChannel, limit 
     .filter(
       (message) =>
         !message.system &&
-        !message.webhookId &&
         ((message.content && message.content.trim().length > 0) ||
-          (message.attachments?.size ?? 0) > 0),
+          (message.attachments?.size ?? 0) > 0 ||
+          (message.embeds?.length ?? 0) > 0),
     )
     .reverse();
 
@@ -87,14 +87,17 @@ export async function copyChannelMessages({ sourceChannel, targetChannel, limit 
   try {
     for (const message of messages) {
       const chunks = splitContent(message.content);
+      if (chunks.length === 0) chunks.push("");
       const [first, ...rest] = chunks;
       const files = await downloadAttachments(message);
+      const embeds = [...(message.embeds ?? [])].slice(0, 10);
 
       await webhook.send({
         content: first,
         username: webhookName(message.member ?? { user: message.author }),
         avatarURL: message.author?.displayAvatarURL?.({ size: 128 }) ?? undefined,
         files,
+        embeds,
         allowedMentions: { parse: [] },
       });
 

@@ -1,7 +1,7 @@
 import { CLONEABLE_CHANNEL_TYPES, snapshotChannel } from "./snapshot.js";
 import { buildOverwrites, channelCreatePayload, CHANNEL_SETTING_FIELDS } from "./builder.js";
 import { describeError } from "./errors.js";
-import { findMirrorChannel, mirrorMessage, webhookPayload } from "./mirror.js";
+import { findMirrorChannel, MAX_EMBEDS, mirrorMessage, webhookPayload } from "./mirror.js";
 import { splitContent } from "./messages.js";
 import { previewName, readOnlyOverwrites } from "./preview.js";
 
@@ -358,17 +358,20 @@ export function createLiveSync({
       }
 
       const chunks = splitContent(message.content);
+      if (chunks.length === 0) chunks.push("");
       for (const [index, chunk] of chunks.entries()) {
+        const embeds = index === 0 ? [...(message.embeds ?? [])].slice(0, MAX_EMBEDS) : [];
         if (tracked.ids[index]) {
           await tracked.webhook
             .editMessage(tracked.ids[index], {
               content: chunk,
+              embeds,
               allowedMentions: { parse: [] },
             })
             .catch((error) => warn(`couldn't edit a mirrored message: ${describeError(error)}`));
           continue;
         }
-        const sent = await tracked.webhook.send(webhookPayload(message, chunk));
+        const sent = await tracked.webhook.send(webhookPayload(message, chunk, index === 0));
         if (sent?.id) tracked.ids.push(sent.id);
       }
 
