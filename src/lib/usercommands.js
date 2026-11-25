@@ -1,7 +1,7 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 import { UserError, describeError } from "./errors.js";
 import { addMassRecords } from "./massusers.js";
-import { retireUserPost, syncUserPost, userRecordEmbed } from "./userposts.js";
+import { cleanUserForum, retireUserPost, syncUserPost, userRecordEmbed } from "./userposts.js";
 
 /** Creating, editing and deleting records is staff work. */
 const GUARDS = {
@@ -9,6 +9,7 @@ const GUARDS = {
   "edit-user": { bit: PermissionFlagsBits.ManageGuild, label: "Manage Server" },
   "delete-user": { bit: PermissionFlagsBits.ManageGuild, label: "Manage Server" },
   "mass-add-users": { bit: PermissionFlagsBits.ManageGuild, label: "Manage Server" },
+  "clean-user-forum": { bit: PermissionFlagsBits.ManageGuild, label: "Manage Server" },
 };
 
 /** Slash option name -> stored field, plus the label used in replies. */
@@ -173,6 +174,25 @@ export const USER_COMMANDS = [
       option
         .setName("file")
         .setDescription("Optional .txt or .csv with the same lines (up to 100 records)"),
+    ),
+
+  new SlashCommandBuilder()
+    .setName("clean-user-forum")
+    .setDescription("Delete posts in the user forum that no record points at.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addStringOption((option) =>
+      option
+        .setName("mode")
+        .setDescription("Which posts to remove")
+        .addChoices(
+          { name: "Posts with no record (default)", value: "orphans" },
+          { name: "Every post in the forum", value: "all" },
+        ),
+    )
+    .addBooleanOption((option) =>
+      option
+        .setName("confirm")
+        .setDescription("Actually delete them — leave this off to only list what would go"),
     ),
 ];
 
@@ -362,6 +382,49 @@ const HANDLERS = {
           `• line ${problem.line}${problem.text ? ` (${problem.text})` : ""} — ${problem.reason}`,
         );
       }
+    }
+
+    return { message: shorten(lines.join("\n")) };
+  },
+
+  async "clean-user-forum"({ interaction, guild, options, users, forum }) {
+    const mode = options.getString("mode") ?? "orphans";
+    const confirm = options.getBoolean("confirm") === true;
+    if (!forum?.channelId) throw new UserError("The user forum isn't configured.");
+
+    const report = await cleanUserForum({
+      forum,
+      users,
+      guild,
+      botId: interaction.client?.user?.id ?? null,
+      mode,
+      dryRun: !confirm,
+    });
+
+    if (report.total === 0) {
+      return { message: `There are no posts in <#${forum.channelId}>.` };
+    }
+
+    const lines = [];
+    if (report.dryRun) {
+      lines.push(
+        `🔎 **${report.targets}** of **${report.total}** post(s) in <#${forum.channelId}> ` +
+          (mode === "all" ? "would be deleted (every post)." : "have no record and can be deleted."),
+      );
+      if (report.sample.length > 0) lines.push(report.sample.map((name) => `• ${name}`).join("\n"));
+      if (report.targets > 0) lines.push("Run it again with `confirm: true` to delete them.");
+    } else {
+      lines.push(
+        `🧹 Deleted **${report.deleted}** post(s) from <#${forum.channelId}>` +
+          `${report.failed.length ? `, ${report.failed.length} failed` : ""}.`,
+      );
+      if (report.failed.length > 0) {
+        lines.push(report.failed.slice(0, 5).map((text) => `• ${text}`).join("\n"));
+      }
+    }
+
+    if (report.skipped > 0) {
+      lines.push(`Skipped **${report.skipped}** post(s) that weren't created by me.`);
     }
 
     return { message: shorten(lines.join("\n")) };

@@ -1,4 +1,5 @@
 import { EmbedBuilder } from "discord.js";
+import { UserError } from "./errors.js";
 import { ageFromDateOfBirth } from "./users.js";
 
 const COLOR = 0xeb459e;
@@ -133,6 +134,38 @@ export function createUserForum({ channelId = null, reason = REASON } = {}) {
       return thread?.id ?? null;
     },
 
+    /** Every post in the forum, active and archived. */
+    async threads(guild) {
+      const forum = await channelFor(guild);
+      if (!forum || typeof forum.threads?.fetchActive !== "function") return null;
+
+      const found = new Map();
+      const add = (threads) => {
+        for (const thread of threads?.values?.() ?? []) found.set(thread.id, thread);
+      };
+
+      add((await forum.threads.fetchActive().catch(() => null))?.threads);
+
+      let before;
+      for (let page = 0; page < 50 && typeof forum.threads.fetchArchived === "function"; page += 1) {
+        const result = await forum.threads
+          .fetchArchived({ limit: 100, type: "public", ...(before ? { before } : {}) })
+          .catch(() => null);
+        const batch = [...(result?.threads?.values?.() ?? [])];
+        if (batch.length === 0) break;
+
+        const seen = found.size;
+        add(result.threads);
+        if (!result.hasMore || found.size === seen) break;
+
+        const last = batch[batch.length - 1];
+        before = last.archivedTimestamp ? new Date(last.archivedTimestamp).toISOString() : undefined;
+        if (!before) break;
+      }
+
+      return [...found.values()];
+    },
+
     /** Mark the post as deleted, then lock and archive it. */
     async retire(record, guild) {
       const thread = await threadFor(guild, record?.forumThreadId);
@@ -158,6 +191,67 @@ export function createUserForum({ channelId = null, reason = REASON } = {}) {
       return thread.id;
     },
   };
+}
+
+/**
+ * Remove posts from the forum that no record points at, or every post at all.
+ * Only threads the bot owns are touched, and nothing happens unless `dryRun` is
+ * false. Returns a report the command turns into a reply.
+ */
+export async function cleanUserForum({
+  forum,
+  users,
+  guild,
+  botId = null,
+  mode = "orphans",
+  dryRun = true,
+} = {}) {
+  if (!forum || !guild) throw new UserError("The user forum isn't available.");
+
+  const threads = await forum.threads(guild);
+  if (!threads) throw new UserError("That channel isn't a forum I can read posts from.");
+
+  const known = new Set(
+    (users?.all(guild.id) ?? []).map((record) => record.forumThreadId).filter(Boolean),
+  );
+
+  const candidates = mode === "all" ? threads : threads.filter((thread) => !known.has(thread.id));
+  const owned = candidates.filter((thread) => !botId || !thread.ownerId || thread.ownerId === botId);
+
+  const report = {
+    total: threads.length,
+    candidates: candidates.length,
+    targets: owned.length,
+    skipped: candidates.length - owned.length,
+    deleted: 0,
+    failed: [],
+    dryRun,
+    sample: owned.slice(0, 10).map((thread) => thread.name ?? thread.id),
+  };
+
+  if (dryRun) return report;
+
+  const deletedIds = new Set();
+  for (const thread of owned) {
+    try {
+      await thread.delete("User database cleanup");
+      deletedIds.add(thread.id);
+      report.deleted += 1;
+    } catch (error) {
+      report.failed.push(`${thread.name ?? thread.id}: ${error.message ?? error}`);
+    }
+  }
+
+  // A record whose post is gone simply gets a new one next time it is edited.
+  if (deletedIds.size > 0 && typeof users?.setMeta === "function") {
+    for (const record of users.all(guild.id)) {
+      if (deletedIds.has(record.forumThreadId)) {
+        users.setMeta({ guildId: guild.id, recordId: record.id, meta: { forumThreadId: null } });
+      }
+    }
+  }
+
+  return report;
 }
 
 /**

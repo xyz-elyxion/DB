@@ -61,7 +61,14 @@ const store = () => createUserStore({ guildId: "g1" });
 test("the database has create, view, edit and delete commands", () => {
   assert.deepEqual(
     USER_COMMANDS.map((command) => command.name).sort(),
-    ["create-user", "delete-user", "edit-user", "mass-add-users", "user-info"],
+    [
+      "clean-user-forum",
+      "create-user",
+      "delete-user",
+      "edit-user",
+      "mass-add-users",
+      "user-info",
+    ],
   );
 });
 

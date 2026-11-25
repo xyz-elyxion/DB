@@ -290,6 +290,7 @@ record. Records are private by default — `/user-info` only posts publicly when
 | `/edit-user [member] [record-username] [first-name] [last-name] [email] [username] [date-of-birth] [class] [gender] [roles] [clear-roles]` | Changes only the fields you give; `roles` replaces the list and `clear-roles` empties it | Manage Server |
 | `/delete-user [member] [username]` | Deletes the record | Manage Server |
 | `/mass-add-users [records] [file]` | Adds up to 100 records at once from pasted lines or a `.txt`/`.csv` attachment | Manage Server |
+| `/clean-user-forum [mode] [confirm]` | Lists, then deletes, forum posts that no record points at (`mode: all` for every post) | Manage Server |
 
 ### The user forum
 
@@ -311,6 +312,18 @@ Threads* in the forum (plus *Manage Threads* to rename, lock and archive posts).
 
 The thread id is stored with the record, so the forum survives restarts. If the
 forum channel can't be found the commands still work and say so in the console.
+
+### Cleaning up the forum
+
+If a run stopped before its records were saved, or the database file was reset,
+the forum can keep posts that nothing points at. `/clean-user-forum` reads every
+post, active and archived, and lists the ones with no record behind them; run it
+again with `confirm: true` to delete them. `mode: all` targets every post in the
+forum instead.
+
+Only posts the bot created are touched, and deleting a post never deletes a
+record — a record whose post is gone simply gets a fresh one next time it is
+edited.
 
 ### Adding records in bulk
 
