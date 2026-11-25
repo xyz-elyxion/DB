@@ -14,6 +14,12 @@ const CLASS_PATTERN = /^[\p{L}\p{N}\p{M} '.,&/()#-]{1,40}$/u;
 
 const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 
+/** How to name the record that already holds a taken username or email. */
+const describeOwner = (record) =>
+  record.userId
+    ? `<@${record.userId}>`
+    : `**${record.firstName} ${record.lastName}** (unassigned)`;
+
 /**
  * Read a date of birth as YYYY-MM-DD or DD/MM/YYYY (also DD-MM-YYYY) and store
  * it as ISO YYYY-MM-DD. Impossible days (31/02) and future dates are rejected.
@@ -291,13 +297,13 @@ export function createUserStore({ file = null, guildId = null } = {}) {
       const usernameClash = clash(gid, "username", profile.username, id);
       if (usernameClash) {
         throw new UserError(
-          `The username **${profile.username}** is already used by <@${usernameClash.userId}>.`,
+          `The username **${profile.username}** is already used by ${describeOwner(usernameClash)}.`,
         );
       }
 
       const emailClash = clash(gid, "email", profile.email, id);
       if (emailClash) {
-        throw new UserError(`That email is already registered to <@${emailClash.userId}>.`);
+        throw new UserError(`That email is already registered to ${describeOwner(emailClash)}.`);
       }
 
       const now = new Date().toISOString();
@@ -329,14 +335,14 @@ export function createUserStore({ file = null, guildId = null } = {}) {
         const usernameClash = clash(gid, "username", changes.username, recordId);
         if (usernameClash) {
           throw new UserError(
-            `The username **${changes.username}** is already used by <@${usernameClash.userId}>.`,
+            `The username **${changes.username}** is already used by ${describeOwner(usernameClash)}.`,
           );
         }
       }
       if (changes.email) {
         const emailClash = clash(gid, "email", changes.email, recordId);
         if (emailClash) {
-          throw new UserError(`That email is already registered to <@${emailClash.userId}>.`);
+          throw new UserError(`That email is already registered to ${describeOwner(emailClash)}.`);
         }
       }
 

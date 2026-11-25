@@ -113,6 +113,20 @@ test("records are unique per member, username and email", () => {
   );
 });
 
+test("a clash names the person even when their record is unassigned", () => {
+  const store = createUserStore();
+  store.create({ guildId: "g1", ...FIELDS });
+
+  assert.throws(
+    () => store.create({ guildId: "g1", ...FIELDS, email: "other@example.com" }),
+    /already used by \*\*Ada Lovelace\*\* \(unassigned\)/,
+  );
+  assert.throws(
+    () => store.create({ guildId: "g1", ...FIELDS, username: "another" }),
+    /already registered to \*\*Ada Lovelace\*\* \(unassigned\)/,
+  );
+});
+
 test("updating only touches the given fields", () => {
   const store = createUserStore();
   store.create({ guildId: "g1", userId: "u1", ...FIELDS });
