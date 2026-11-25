@@ -260,6 +260,46 @@ test("the command reports skipped lines and still adds the rest", async () => {
   assert.equal(posts.length, 1);
 });
 
+test("the command acknowledges at once and reports records before forum posts", async () => {
+  const { guild, posts, forum } = fakeForum();
+  const users = createUserStore({ guildId: "g1" });
+  const deferred = [];
+  const edits = [];
+
+  const interaction = {
+    commandName: "mass-add-users",
+    guild,
+    guildId: "g1",
+    user: { id: "mod" },
+    member: { id: "mod", permissions: { has: () => true } },
+    options: {
+      getString: (name) => (name === "records" ? `${ADA}\n${GRACE}` : null),
+      getBoolean: () => null,
+      getUser: () => null,
+      getAttachment: () => null,
+    },
+    async deferReply(payload) {
+      deferred.push(payload ?? {});
+    },
+    async editReply(payload) {
+      edits.push(payload);
+    },
+    async reply() {
+      throw new Error("nothing should be replied directly once deferred");
+    },
+  };
+
+  await runUserCommand(interaction, { users, forum });
+
+  assert.deepEqual(deferred, [{ flags: 64 }], "acknowledged before the slow work");
+  assert.equal(users.count("g1"), 2);
+  assert.equal(edits.length, 2, "progress first, then the summary");
+  assert.match(edits[0].content, /Added \*\*2\*\* record\(s\)/);
+  assert.match(edits[0].content, /Posting them in <#forum>/);
+  assert.match(edits[1].content, /Posted 2 of them in <#forum>/);
+  assert.equal(posts.length, 2);
+});
+
 test("the command needs at least one line", async () => {
   const { guild, forum } = fakeForum();
   const users = createUserStore({ guildId: "g1" });

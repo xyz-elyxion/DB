@@ -259,6 +259,39 @@ test("unassigned records are edited and deleted by username", async () => {
   assert.match(deleted.replies[0].content, /\(unassigned\)/);
 });
 
+test("a slow command acknowledges at once and fills the reply in later", async () => {
+  const users = store();
+  const deferred = [];
+  const edits = [];
+
+  const interaction = {
+    commandName: "create-user",
+    guild: { id: "g1", name: "Main" },
+    guildId: "g1",
+    user: { id: "mod", username: "Moderator" },
+    member: { id: "mod", permissions: { has: () => true } },
+    options: {
+      getString: (name) => OPTIONS[name] ?? null,
+      getUser: (name) => (name === "member" ? { id: "u1" } : null),
+      getBoolean: () => null,
+    },
+    async deferReply(payload) {
+      deferred.push(payload ?? {});
+    },
+    async editReply(payload) {
+      edits.push(payload);
+    },
+    async reply() {
+      throw new Error("nothing should be replied directly once deferred");
+    },
+  };
+
+  assert.equal(await runUserCommand(interaction, { users }), true);
+  assert.deepEqual(deferred, [{ flags: 64 }], "acknowledged privately and immediately");
+  assert.equal(edits.length, 1);
+  assert.match(edits[0].content, /Created a record for <@u1>/);
+});
+
 test("commands that are not user commands are left for the other handlers", async () => {
   const interaction = interactionFor({ commandName: "rank" });
   assert.equal(await runUserCommand(interaction, { users: store() }), false);

@@ -310,6 +310,7 @@ const HANDLERS = {
     users,
     forum,
     moderator,
+    respond,
     readAttachment = readAttachmentText,
   }) {
     const pasted = options.getString("records") ?? "";
@@ -330,6 +331,22 @@ const HANDLERS = {
       text,
       createdBy: moderator?.id ?? null,
     });
+
+    if (added.length > 0) {
+      console.log(
+        `[users] Imported ${added.length} record(s); ${users.count(guild.id)} stored in total.`,
+      );
+    }
+
+    // The records are on disk now; the forum posts can take a while, so say so
+    // before working through them instead of leaving the reply silent.
+    if (added.length > 0 && forum?.channelId) {
+      await respond?.({
+        content:
+          `🗂️ Added **${added.length}** record(s) to the database. ` +
+          `Posting them in <#${forum.channelId}>…`,
+      });
+    }
 
     let posted = 0;
     for (const record of added) {
@@ -393,6 +410,21 @@ export async function runUserCommand(interaction, context = {}) {
   if (!handler) return false;
 
   const guild = interaction.guild;
+  const publicReply = interaction.options?.getBoolean?.("public") === true;
+
+  // Discord only gives an interaction three seconds, while creating forum
+  // posts takes far longer. Acknowledge straight away, then fill the reply in.
+  const deferred =
+    typeof interaction.deferReply === "function" &&
+    (await interaction
+      .deferReply(publicReply ? {} : { flags: MessageFlags.Ephemeral })
+      .then(() => true)
+      .catch(() => false));
+
+  const respond = async (payload) => {
+    if (!deferred) return;
+    await interaction.editReply(payload).catch(() => {});
+  };
 
   try {
     if (!guild) throw new UserError("User records only work inside a server.");
@@ -406,20 +438,26 @@ export async function runUserCommand(interaction, context = {}) {
       guild,
       moderator: interaction.member,
       options: interaction.options,
+      respond,
       ...context,
     });
 
-    const publicReply = interaction.options?.getBoolean?.("public") === true;
     const { message, ...rest } = result;
+    const payload = { ...(message ? { content: message } : {}), ...rest };
 
-    await interaction.reply({
-      ...(message ? { content: message } : {}),
-      ...rest,
-      ...(publicReply ? {} : { flags: MessageFlags.Ephemeral }),
-    });
+    if (deferred) await interaction.editReply(payload).catch(() => {});
+    else {
+      await interaction
+        .reply({ ...payload, ...(publicReply ? {} : { flags: MessageFlags.Ephemeral }) })
+        .catch(() => {});
+    }
   } catch (error) {
     const text = error instanceof UserError ? error.message : `That failed — ${describeError(error)}`;
-    await interaction.reply({ content: `⚠️ ${text}`, flags: MessageFlags.Ephemeral }).catch(() => {});
+
+    if (deferred) await interaction.editReply({ content: `⚠️ ${text}` }).catch(() => {});
+    else {
+      await interaction.reply({ content: `⚠️ ${text}`, flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
   }
 
   return true;

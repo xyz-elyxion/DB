@@ -84,6 +84,12 @@ const users = createUserStore({ file: config.usersFile });
 // Every record also gets a post in the user forum, which follows the record.
 const userForum = createUserForum({ channelId: config.usersForumId });
 
+// Says where records live, so a wrong or unwritable path is obvious at a glance.
+console.log(
+  `User records: ${users.count(config.sourceId)} loaded from ${config.usersFile} ` +
+    `(forum ${config.usersForumId ?? "off"}).`,
+);
+
 // The preview guild, once the bot has connected.
 let previewGuild = null;
 
