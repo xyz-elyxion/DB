@@ -55,7 +55,7 @@ function addProfileOptions(command, { required = false } = {}) {
     .addStringOption((option) =>
       option
         .setName("date-of-birth")
-        .setDescription("YYYY-MM-DD or DD/MM/YYYY")
+        .setDescription("YYYY-MM-DD or DD/MM/YYYY (optional)")
         .setRequired(required)
         .setMaxLength(10),
     )
@@ -207,7 +207,7 @@ const HANDLERS = {
       lastName: options.getString("last-name", true),
       email: options.getString("email", true),
       username: options.getString("username", true),
-      dateOfBirth: options.getString("date-of-birth", true),
+      dateOfBirth: options.getString("date-of-birth") ?? undefined,
       class: options.getString("class", true),
       gender: options.getString("gender", true),
       roles: options.getString("roles") ?? undefined,

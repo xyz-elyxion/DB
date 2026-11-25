@@ -147,18 +147,23 @@ export function normalizeProfile(input = {}, { partial = false } = {}) {
 
   if (wanted("dateOfBirth")) {
     const value = clean(read("dateOfBirth"));
-    if (!value) throw new UserError("Date of birth is required.");
-    const iso = parseDateOfBirth(value);
-    if (!iso) {
-      throw new UserError(
-        "Date of birth must be a real date in the past, like 2005-04-12 or 12/04/2005.",
-      );
+    // Birthdays are optional: not every list has one, and an empty value just
+    // clears it. The card then shows "Not set" instead of an age.
+    if (!value) {
+      profile.dateOfBirth = null;
+    } else {
+      const iso = parseDateOfBirth(value);
+      if (!iso) {
+        throw new UserError(
+          "Date of birth must be a real date in the past, like 2005-04-12 or 12/04/2005.",
+        );
+      }
+      const age = ageFromDateOfBirth(iso);
+      if (age === null || age > 120) {
+        throw new UserError("Date of birth can't be more than 120 years ago.");
+      }
+      profile.dateOfBirth = iso;
     }
-    const age = ageFromDateOfBirth(iso);
-    if (age === null || age > 120) {
-      throw new UserError("Date of birth can't be more than 120 years ago.");
-    }
-    profile.dateOfBirth = iso;
   }
 
   if (wanted("class")) {

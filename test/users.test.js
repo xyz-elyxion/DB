@@ -62,6 +62,16 @@ test("a profile is tidied and validated", () => {
   assert.throws(() => normalizeProfile({ ...FIELDS, gender: "" }), /Gender is required/);
 });
 
+test("the birthday is optional", () => {
+  const profile = normalizeProfile({ ...FIELDS, dateOfBirth: "" });
+  assert.equal(profile.dateOfBirth, null);
+
+  const store = createUserStore();
+  const record = store.create({ guildId: "g1", ...FIELDS, dateOfBirth: "" });
+  assert.equal(record.dateOfBirth, null);
+  assert.throws(() => normalizeProfile({ ...FIELDS, dateOfBirth: "nope" }), /real date/);
+});
+
 test("creating, finding and persisting records", () => {
   const dir = mkdtempSync(join(tmpdir(), "users-"));
   const file = join(dir, "users.json");

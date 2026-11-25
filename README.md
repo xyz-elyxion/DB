@@ -274,8 +274,9 @@ for people who aren't on Discord yet. Unassigned records are found by their
 username, which `/user-info`, `/edit-user` and `/delete-user` all accept. Usernames and emails are unique within a server (compared
 without case), so two people can't claim the same one.
 
-Dates of birth are accepted as `YYYY-MM-DD` or `DD/MM/YYYY` and stored as
-`YYYY-MM-DD`; impossible days and future dates are rejected. Roles are
+Dates of birth are optional, accepted as `YYYY-MM-DD` or `DD/MM/YYYY` and stored
+as `YYYY-MM-DD`; impossible days and future dates are rejected, and a record with
+no birthday shows *Not set*. Roles are
 comma-separated (`Student, Prefect`) and appear as their own section on the
 record. Records are private by default — `/user-info` only posts publicly when
 `public` is set.
@@ -322,7 +323,7 @@ member | first name | last name | email | username | date of birth | class | gen
 
 - `member` is a mention (`<@id>`) or the numeric user ID — or `-` (or blank) to
   leave the record unassigned; the rest are the same fields `/create-user` takes,
-  and `roles` stays one comma-separated field.
+  and `roles` stays one comma-separated field. `date of birth` can be left blank.
 - Fields can be separated by `|`, a tab or `;` — handy when pasting from a sheet.
 - Blank lines, `#` lines and `//` lines are ignored, so a header row can be kept
   commented out.

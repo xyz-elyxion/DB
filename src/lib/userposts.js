@@ -8,7 +8,8 @@ const REASON = "User database";
 
 /** The record card, shared by /user-info and the forum post. */
 export function userRecordEmbed(record, { authorName = null } = {}) {
-  const age = ageFromDateOfBirth(record.dateOfBirth);
+  const birthday = record.dateOfBirth || null;
+  const age = birthday ? ageFromDateOfBirth(birthday) : null;
   const roles = Array.isArray(record.roles) ? record.roles : [];
 
   return new EmbedBuilder()
@@ -22,7 +23,7 @@ export function userRecordEmbed(record, { authorName = null } = {}) {
       { name: "Email", value: record.email, inline: true },
       {
         name: "Date of birth",
-        value: age === null ? record.dateOfBirth : `${record.dateOfBirth} (age ${age})`,
+        value: birthday ? (age === null ? birthday : `${birthday} (age ${age})`) : "Not set",
         inline: true,
       },
       { name: "Class", value: record.class, inline: true },

@@ -166,7 +166,7 @@ test("every valid line becomes a record, failures keep their line number", () =>
 });
 
 test("a mass line can leave the member unassigned", () => {
-  const line = "- | Alan | Turing | alan@example.com | alan.t | 1912-06-23 | 12C | Male";
+  const line = "- | Alan | Turing | alan@example.com | alan.t |  | 12C | Male";
   const { records, problems } = parseMassRecords(line);
   assert.equal(problems.length, 0);
   assert.equal(records[0].userId, null);
@@ -175,6 +175,7 @@ test("a mass line can leave the member unassigned", () => {
   const { added } = addMassRecords({ users, guildId: "g1", text: line });
   assert.equal(added.length, 1);
   assert.equal(added[0].userId, null);
+  assert.equal(added[0].dateOfBirth, null, "an empty birthday is allowed");
   assert.equal(users.findByUsername("g1", "alan.t").class, "12C");
 });
 

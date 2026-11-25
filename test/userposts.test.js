@@ -145,6 +145,24 @@ test("the record card shows every field and the roles section", () => {
   assert.match(embed.footer.text, /2026-01-02/);
 });
 
+test("a record without a birthday or member says so on the card", () => {
+  const embed = userRecordEmbed({
+    firstName: "Ada",
+    lastName: "Lovelace",
+    email: "ada@example.com",
+    username: "ada.l",
+    dateOfBirth: null,
+    class: "10A",
+    gender: "Female",
+    roles: [],
+    userId: null,
+  }).toJSON();
+  const fields = Object.fromEntries(embed.fields.map((field) => [field.name, field.value]));
+
+  assert.equal(fields["Date of birth"], "Not set");
+  assert.equal(fields.Discord, "Not assigned");
+});
+
 test("creating a record opens a forum post and remembers it", async () => {
   const { guild, posts, forum } = fakeWorld();
   const users = createUserStore({ guildId: "g1" });
