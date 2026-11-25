@@ -110,7 +110,7 @@ test("updating only touches the given fields", () => {
 
   const { record, changed } = store.update({
     guildId: "g1",
-    userId: "u1",
+    recordId: "u1",
     class: "11B",
     roles: "",
   });
@@ -122,10 +122,30 @@ test("updating only touches the given fields", () => {
   assert.equal(record.createdAt, before.createdAt);
 
   assert.throws(
-    () => store.update({ guildId: "g1", userId: "u2", class: "10A" }),
-    /doesn't have a record/,
+    () => store.update({ guildId: "g1", recordId: "u2", class: "10A" }),
+    /doesn't exist/,
   );
-  assert.throws(() => store.update({ guildId: "g1", userId: "u1" }), /at least one field/);
+  assert.throws(() => store.update({ guildId: "g1", recordId: "u1" }), /at least one field/);
+});
+
+test("a record can exist without a member", () => {
+  const store = createUserStore();
+  const record = store.create({ guildId: "g1", ...FIELDS });
+
+  assert.equal(record.userId, null, "unassigned");
+  assert.ok(record.id, "still gets its own id");
+  assert.equal(store.get("g1", record.id).username, "ada.l");
+  assert.equal(store.findByUsername("g1", "ada.l").id, record.id);
+
+  const { record: updated } = store.update({
+    guildId: "g1",
+    recordId: record.id,
+    class: "11B",
+  });
+  assert.equal(updated.class, "11B");
+  assert.equal(updated.userId, null, "editing does not assign a member");
+  assert.equal(store.remove("g1", record.id).id, record.id);
+  assert.equal(store.count("g1"), 0);
 });
 
 test("removing a record returns it and forgets it", () => {

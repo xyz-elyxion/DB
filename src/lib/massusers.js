@@ -24,8 +24,9 @@ function splitFields(line) {
  *
  *   member | first name | last name | email | username | date of birth | class | gender | roles
  *
- * Blank lines and lines starting with # or // are ignored, so a pasted sheet
- * can keep its header commented out. Bad lines are reported, not fatal.
+ * `member` may be left empty (or be `-`) for an unassigned record. Blank lines
+ * and lines starting with # or // are ignored, so a pasted sheet can keep its
+ * header commented out. Bad lines are reported, not fatal.
  */
 export function parseMassRecords(text) {
   const records = [];
@@ -64,9 +65,12 @@ export function parseMassRecords(text) {
           roles = "",
         ] = parts;
 
-        const userId = parseMemberId(member);
-        if (!userId) {
-          throw new UserError(`"${member}" isn't a member — use <@id> or the numeric user ID`);
+        const unassigned = member === "" || member === "-";
+        const userId = unassigned ? null : parseMemberId(member);
+        if (!unassigned && !userId) {
+          throw new UserError(
+            `"${member}" isn't a member — use <@id>, the numeric user ID, or - for an unassigned record`,
+          );
         }
 
         records.push({

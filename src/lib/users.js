@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { UserError } from "./errors.js";
@@ -200,6 +201,12 @@ export function createUserStore({ file = null, guildId = null } = {}) {
     try {
       const parsed = JSON.parse(readFileSync(file, "utf8"));
       guilds = parsed && typeof parsed.guilds === "object" && parsed.guilds ? parsed.guilds : {};
+      // Records saved before ids existed are keyed by the member they belong to.
+      for (const guild of Object.values(guilds)) {
+        for (const [key, record] of Object.entries(guild?.users ?? {})) {
+          if (record && typeof record === "object") record.id ??= record.userId ?? key;
+        }
+      }
     } catch (error) {
       console.warn(`Could not read ${file}, starting with no user records: ${error.message}`);
     }
@@ -225,21 +232,20 @@ export function createUserStore({ file = null, guildId = null } = {}) {
     return Object.values(bucket(gid).users);
   }
 
-  function clash(gid, field, value, exceptUserId) {
+  function clash(gid, field, value, exceptId) {
     const needle = String(value ?? "").toLowerCase();
     if (!needle) return null;
     return (
       records(gid).find(
         (record) =>
-          record.userId !== exceptUserId &&
-          String(record[field] ?? "").toLowerCase() === needle,
+          record.id !== exceptId && String(record[field] ?? "").toLowerCase() === needle,
       ) ?? null
     );
   }
 
   return {
-    get(gid = guildId, userId) {
-      return bucket(gid).users[userId] ?? null;
+    get(gid = guildId, id) {
+      return bucket(gid).users[id] ?? null;
     },
 
     count(gid = guildId) {
@@ -261,50 +267,61 @@ export function createUserStore({ file = null, guildId = null } = {}) {
       );
     },
 
-    create({ guildId: gid = guildId, userId, createdBy = null, ...fields } = {}) {
+    /**
+     * `userId` may be left out: the record is then unassigned and gets its own
+     * id, so it can still be found by username, edited and deleted.
+     */
+    create({ guildId: gid = guildId, userId = null, createdBy = null, ...fields } = {}) {
       if (!gid) throw new UserError("A server is required to store a user record.");
-      if (!userId) throw new UserError("A member is required.");
 
       const guild = bucket(gid);
-      if (guild.users[userId]) {
+      const id = userId ? String(userId) : `unassigned-${randomUUID()}`;
+      if (guild.users[id]) {
         throw new UserError(`<@${userId}> already has a record — use \`/edit-user\` to change it.`);
       }
 
       const profile = normalizeProfile(fields);
       profile.roles ??= [];
 
-      const usernameClash = clash(gid, "username", profile.username, userId);
+      const usernameClash = clash(gid, "username", profile.username, id);
       if (usernameClash) {
         throw new UserError(
           `The username **${profile.username}** is already used by <@${usernameClash.userId}>.`,
         );
       }
 
-      const emailClash = clash(gid, "email", profile.email, userId);
+      const emailClash = clash(gid, "email", profile.email, id);
       if (emailClash) {
         throw new UserError(`That email is already registered to <@${emailClash.userId}>.`);
       }
 
       const now = new Date().toISOString();
-      const record = { userId, ...profile, createdAt: now, updatedAt: now, createdBy };
-      guild.users[userId] = record;
+      const record = {
+        id,
+        userId: userId ? String(userId) : null,
+        ...profile,
+        createdAt: now,
+        updatedAt: now,
+        createdBy,
+      };
+      guild.users[id] = record;
       save();
       return record;
     },
 
-    update({ guildId: gid = guildId, userId, ...patch } = {}) {
+    update({ guildId: gid = guildId, recordId, ...patch } = {}) {
       const guild = bucket(gid);
-      const existing = guild.users[userId];
+      const existing = guild.users[recordId];
       if (!existing) {
         throw new UserError(
-          `<@${userId}> doesn't have a record yet — use \`/create-user\` to add one.`,
+          "That record doesn't exist — use `/create-user` to add one.",
         );
       }
 
       const changes = normalizeProfile(patch, { partial: true });
 
       if (changes.username) {
-        const usernameClash = clash(gid, "username", changes.username, userId);
+        const usernameClash = clash(gid, "username", changes.username, recordId);
         if (usernameClash) {
           throw new UserError(
             `The username **${changes.username}** is already used by <@${usernameClash.userId}>.`,
@@ -312,14 +329,14 @@ export function createUserStore({ file = null, guildId = null } = {}) {
         }
       }
       if (changes.email) {
-        const emailClash = clash(gid, "email", changes.email, userId);
+        const emailClash = clash(gid, "email", changes.email, recordId);
         if (emailClash) {
           throw new UserError(`That email is already registered to <@${emailClash.userId}>.`);
         }
       }
 
       const record = { ...existing, ...changes, updatedAt: new Date().toISOString() };
-      guild.users[userId] = record;
+      guild.users[recordId] = record;
       save();
       return { record, before: existing, changed: Object.keys(changes) };
     },
@@ -328,23 +345,23 @@ export function createUserStore({ file = null, guildId = null } = {}) {
      * Store bookkeeping fields that aren't part of the profile — currently the
      * forum post the record lives in. Never touches the validated fields.
      */
-    setMeta({ guildId: gid = guildId, userId, meta } = {}) {
+    setMeta({ guildId: gid = guildId, recordId, meta } = {}) {
       const guild = bucket(gid);
-      const existing = guild.users[userId];
+      const existing = guild.users[recordId];
       if (!existing) return null;
 
       const record = { ...existing, ...meta };
-      guild.users[userId] = record;
+      guild.users[recordId] = record;
       save();
       return record;
     },
 
     /** Returns the deleted record, or null when there was nothing to delete. */
-    remove(gid = guildId, userId) {
+    remove(gid = guildId, recordId) {
       const guild = bucket(gid);
-      const existing = guild.users[userId] ?? null;
+      const existing = guild.users[recordId] ?? null;
       if (!existing) return null;
-      delete guild.users[userId];
+      delete guild.users[recordId];
       save();
       return existing;
     },

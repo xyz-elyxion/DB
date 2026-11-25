@@ -78,7 +78,9 @@ export const USER_COMMANDS = [
       .setDescription("Add a member's name, email, birthday, class and roles to the database.")
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
       .addUserOption((option) =>
-        option.setName("member").setDescription("The member this record belongs to").setRequired(true),
+        option
+          .setName("member")
+          .setDescription("The member this record belongs to (leave blank to keep it unassigned)"),
       ),
   ).addStringOption((option) =>
     option
@@ -105,7 +107,13 @@ export const USER_COMMANDS = [
     .setDescription("Change fields on an existing record — give only what changes.")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addUserOption((option) =>
-      option.setName("member").setDescription("Whose record to change").setRequired(true),
+      option.setName("member").setDescription("Whose record to change"),
+    )
+    .addStringOption((option) =>
+      option
+        .setName("username")
+        .setDescription("…or the record's database username (for unassigned records)")
+        .setMaxLength(32),
     )
     .addStringOption((option) =>
       option.setName("first-name").setDescription("New first name").setMaxLength(50),
@@ -140,7 +148,13 @@ export const USER_COMMANDS = [
     .setDescription("Delete a member's record from the database.")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addUserOption((option) =>
-      option.setName("member").setDescription("Whose record to delete").setRequired(true),
+      option.setName("member").setDescription("Whose record to delete"),
+    )
+    .addStringOption((option) =>
+      option
+        .setName("username")
+        .setDescription("…or the record's database username (for unassigned records)")
+        .setMaxLength(32),
     ),
 
   new SlashCommandBuilder()
@@ -165,12 +179,29 @@ export const USER_COMMANDS = [
 const fieldLabel = (field) =>
   PROFILE_FIELDS.find(([, key]) => key === field)?.[2] ?? "Roles";
 
+/** Find the record a command points at: by member, or by username when unassigned. */
+function findRecord(users, guildId, { member = null, username = null } = {}) {
+  if (member) {
+    const record = users.get(guildId, member.id);
+    if (!record) throw new UserError(`<@${member.id}> doesn't have a record yet.`);
+    return record;
+  }
+
+  if (username) {
+    const record = users.findByUsername(guildId, username);
+    if (!record) throw new UserError(`No record with the username **${username}**.`);
+    return record;
+  }
+
+  throw new UserError("Give a member or a database username.");
+}
+
 const HANDLERS = {
   async "create-user"({ guild, options, users, forum, moderator }) {
-    const user = options.getUser("member", true);
+    const user = options.getUser("member");
     const record = users.create({
       guildId: guild.id,
-      userId: user.id,
+      userId: user?.id ?? null,
       createdBy: moderator?.id ?? null,
       firstName: options.getString("first-name", true),
       lastName: options.getString("last-name", true),
@@ -186,8 +217,13 @@ const HANDLERS = {
 
     return {
       message:
-        `🗂️ Created a record for <@${user.id}> — **${record.firstName} ${record.lastName}** ` +
-        `(\`${record.username}\`).${record.roles.length ? ` Roles: ${record.roles.join(", ")}.` : ""}\n` +
+        `🗂️ Created ${user ? `a record for <@${user.id}>` : "an unassigned record"} — ` +
+        `**${record.firstName} ${record.lastName}** (\`${record.username}\`).` +
+        `${record.roles.length ? ` Roles: ${record.roles.join(", ")}.` : ""}\n` +
+        (user
+          ? ""
+          : `It isn't linked to a member — find it with \`/user-info username:${record.username}\` ` +
+            `or change it with \`/edit-user username:${record.username}\`.\n`) +
         `Staff can check it with \`/user-info\` or change it with \`/edit-user\`.` +
         (threadId ? `\nPosted it in the user forum: <#${threadId}>.` : ""),
     };
@@ -214,7 +250,10 @@ const HANDLERS = {
   },
 
   async "edit-user"({ guild, options, users, forum }) {
-    const user = options.getUser("member", true);
+    const target = findRecord(users, guild.id, {
+      member: options.getUser("member"),
+      username: options.getString("username"),
+    });
     const patch = {};
 
     for (const [optionName, field] of PROFILE_FIELDS) {
@@ -229,27 +268,38 @@ const HANDLERS = {
       throw new UserError("Give at least one field to change.");
     }
 
-    const { record, changed } = users.update({ guildId: guild.id, userId: user.id, ...patch });
+    const { record, changed } = users.update({
+      guildId: guild.id,
+      recordId: target.id,
+      ...patch,
+    });
     const threadId = await syncUserPost({ forum, users, guild, record });
 
+    const label = record.userId
+      ? `<@${record.userId}>`
+      : `**${record.firstName} ${record.lastName}**`;
     return {
       message:
-        `✏️ Updated <@${user.id}>: ${changed.map(fieldLabel).join(", ")}.\n` +
+        `✏️ Updated ${label}: ${changed.map(fieldLabel).join(", ")}.\n` +
         `**${record.firstName} ${record.lastName}** — \`${record.username}\`.` +
         (threadId ? `\nThe forum post is up to date: <#${threadId}>.` : ""),
     };
   },
 
   async "delete-user"({ guild, options, users, forum }) {
-    const user = options.getUser("member", true);
-    const removed = users.remove(guild.id, user.id);
-    if (!removed) throw new UserError(`<@${user.id}> doesn't have a record.`);
+    const target = findRecord(users, guild.id, {
+      member: options.getUser("member"),
+      username: options.getString("username"),
+    });
+    const removed = users.remove(guild.id, target.id);
+    if (!removed) throw new UserError("That record is already gone.");
 
     const threadId = await retireUserPost({ forum, guild, record: removed });
 
     return {
       message:
-        `🗑️ Deleted the record of **${removed.firstName} ${removed.lastName}** (<@${user.id}>).` +
+        `🗑️ Deleted the record of **${removed.firstName} ${removed.lastName}** ` +
+        `(${removed.userId ? `<@${removed.userId}>` : "unassigned"}).` +
         (threadId ? `\nArchived its forum post: <#${threadId}>.` : ""),
     };
   },

@@ -27,7 +27,7 @@ export function userRecordEmbed(record, { authorName = null } = {}) {
       },
       { name: "Class", value: record.class, inline: true },
       { name: "Gender", value: record.gender, inline: true },
-      { name: "Discord", value: `<@${record.userId}>`, inline: true },
+      { name: "Discord", value: record.userId ? `<@${record.userId}>` : "Not assigned", inline: true },
       {
         name: "Roles",
         value: roles.length ? roles.map((role) => `\`${role}\``).join(", ") : "None",
@@ -176,7 +176,7 @@ export async function syncUserPost({ forum, users, guild, record }) {
   if (!threadId) return null;
 
   if (threadId !== record.forumThreadId && typeof users?.setMeta === "function") {
-    users.setMeta({ guildId: guild.id, userId: record.userId, meta: { forumThreadId: threadId } });
+    users.setMeta({ guildId: guild.id, recordId: record.id, meta: { forumThreadId: threadId } });
   }
   return threadId;
 }

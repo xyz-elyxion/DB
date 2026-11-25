@@ -167,7 +167,7 @@ test("editing a record rewrites the same post instead of making a new one", asyn
 
   const { record } = users.update({
     guildId: "g1",
-    userId: "u1",
+    recordId: "u1",
     username: "ada.new",
     class: "11B",
     roles: "",

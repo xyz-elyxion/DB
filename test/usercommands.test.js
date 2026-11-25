@@ -192,6 +192,48 @@ test("/delete-user removes the record", async () => {
   assert.match(again.replies[0].content, /doesn't have a record/);
 });
 
+test("/create-user works without a member and keeps the record unassigned", async () => {
+  const users = store();
+
+  const interaction = interactionFor({ commandName: "create-user", options: { ...OPTIONS } });
+  await runUserCommand(interaction, { users });
+
+  const [record] = users.all("g1");
+  assert.equal(record.userId, null);
+  assert.match(interaction.replies[0].content, /an unassigned record/);
+  assert.match(interaction.replies[0].content, /\/user-info username:ada\.l/);
+
+  const info = interactionFor({ commandName: "user-info", options: { username: "ada.l" } });
+  await runUserCommand(info, { users });
+  const fields = Object.fromEntries(
+    info.replies[0].embeds[0].toJSON().fields.map((field) => [field.name, field.value]),
+  );
+  assert.equal(fields.Discord, "Not assigned");
+});
+
+test("unassigned records are edited and deleted by username", async () => {
+  const users = store();
+  users.create({ guildId: "g1", ...FIELDS });
+
+  const edited = interactionFor({
+    commandName: "edit-user",
+    options: { username: "ADA.L", class: "11B" },
+  });
+  await runUserCommand(edited, { users });
+  assert.equal(users.findByUsername("g1", "ada.l").class, "11B");
+  assert.equal(users.findByUsername("g1", "ada.l").userId, null);
+  assert.match(edited.replies[0].content, /Updated \*\*Ada Lovelace\*\*/);
+
+  const noTarget = interactionFor({ commandName: "edit-user", options: { class: "11B" } });
+  await runUserCommand(noTarget, { users });
+  assert.match(noTarget.replies[0].content, /Give a member or a database username/);
+
+  const deleted = interactionFor({ commandName: "delete-user", options: { username: "ada.l" } });
+  await runUserCommand(deleted, { users });
+  assert.equal(users.count("g1"), 0);
+  assert.match(deleted.replies[0].content, /\(unassigned\)/);
+});
+
 test("commands that are not user commands are left for the other handlers", async () => {
   const interaction = interactionFor({ commandName: "rank" });
   assert.equal(await runUserCommand(interaction, { users: store() }), false);

@@ -165,6 +165,19 @@ test("every valid line becomes a record, failures keep their line number", () =>
   assert.equal(users.get("g1", "111111111111111111").createdBy, "mod");
 });
 
+test("a mass line can leave the member unassigned", () => {
+  const line = "- | Alan | Turing | alan@example.com | alan.t | 1912-06-23 | 12C | Male";
+  const { records, problems } = parseMassRecords(line);
+  assert.equal(problems.length, 0);
+  assert.equal(records[0].userId, null);
+
+  const users = createUserStore({ guildId: "g1" });
+  const { added } = addMassRecords({ users, guildId: "g1", text: line });
+  assert.equal(added.length, 1);
+  assert.equal(added[0].userId, null);
+  assert.equal(users.findByUsername("g1", "alan.t").class, "12C");
+});
+
 test("too many records at once are refused rather than half-added", () => {
   const users = createUserStore({ guildId: "g1" });
   const line = (index) =>
