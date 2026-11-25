@@ -271,7 +271,9 @@ is saved to `USERS_FILE` (`data/users.json`), so it survives restarts.
 
 The `member` is optional: leave it out and the record is **unassigned** — useful
 for people who aren't on Discord yet. Unassigned records are found by their
-username, which `/user-info`, `/edit-user` and `/delete-user` all accept. Usernames and emails are unique within a server (compared
+username: `/user-info username:` and `/delete-user username:`, and for
+`/edit-user` it's `record-username:` (its own `username` option sets the *new*
+username). Usernames and emails are unique within a server (compared
 without case), so two people can't claim the same one.
 
 Dates of birth are optional, accepted as `YYYY-MM-DD` or `DD/MM/YYYY` and stored
@@ -285,7 +287,7 @@ record. Records are private by default — `/user-info` only posts publicly when
 | --- | --- | --- |
 | `/create-user [member] first-name last-name email username date-of-birth class gender [roles]` | Adds a record, unassigned without a member; roles are comma-separated | Manage Server |
 | `/user-info [member] [username] [public]` | Shows a record — yours by default | — |
-| `/edit-user [member] [username] [first-name] [last-name] [email] [username] [date-of-birth] [class] [gender] [roles] [clear-roles]` | Changes only the fields you give; `roles` replaces the list and `clear-roles` empties it | Manage Server |
+| `/edit-user [member] [record-username] [first-name] [last-name] [email] [username] [date-of-birth] [class] [gender] [roles] [clear-roles]` | Changes only the fields you give; `roles` replaces the list and `clear-roles` empties it | Manage Server |
 | `/delete-user [member] [username]` | Deletes the record | Manage Server |
 | `/mass-add-users [records] [file]` | Adds up to 100 records at once from pasted lines or a `.txt`/`.csv` attachment | Manage Server |
 

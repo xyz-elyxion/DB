@@ -111,8 +111,8 @@ export const USER_COMMANDS = [
     )
     .addStringOption((option) =>
       option
-        .setName("username")
-        .setDescription("…or the record's database username (for unassigned records)")
+        .setName("record-username")
+        .setDescription("…or the database username of the record to change")
         .setMaxLength(32),
     )
     .addStringOption((option) =>
@@ -223,7 +223,7 @@ const HANDLERS = {
         (user
           ? ""
           : `It isn't linked to a member — find it with \`/user-info username:${record.username}\` ` +
-            `or change it with \`/edit-user username:${record.username}\`.\n`) +
+            `or change it with \`/edit-user record-username:${record.username}\`.\n`) +
         `Staff can check it with \`/user-info\` or change it with \`/edit-user\`.` +
         (threadId ? `\nPosted it in the user forum: <#${threadId}>.` : ""),
     };
@@ -252,7 +252,7 @@ const HANDLERS = {
   async "edit-user"({ guild, options, users, forum }) {
     const target = findRecord(users, guild.id, {
       member: options.getUser("member"),
-      username: options.getString("username"),
+      username: options.getString("record-username"),
     });
     const patch = {};
 

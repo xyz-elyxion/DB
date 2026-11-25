@@ -65,6 +65,31 @@ test("the database has create, view, edit and delete commands", () => {
   );
 });
 
+test("every command payload is valid for Discord", () => {
+  const NAME = /^[-_\p{L}\p{N}]{1,32}$/u;
+
+  for (const command of USER_COMMANDS) {
+    const json = command.toJSON();
+    assert.match(json.name, NAME);
+    assert.ok(json.description.length <= 100, `${json.name} description is too long`);
+
+    const names = (json.options ?? []).map((option) => option.name);
+    assert.equal(
+      new Set(names).size,
+      names.length,
+      `${json.name} repeats an option name: ${names.join(", ")}`,
+    );
+
+    for (const option of json.options ?? []) {
+      assert.match(option.name, NAME, `${json.name} has an invalid option name`);
+      assert.ok(
+        option.description.length <= 100,
+        `${json.name} ${option.name} has a description that is too long`,
+      );
+    }
+  }
+});
+
 test("/create-user needs Manage Server and stores the record", async () => {
   const users = store();
 
@@ -217,7 +242,7 @@ test("unassigned records are edited and deleted by username", async () => {
 
   const edited = interactionFor({
     commandName: "edit-user",
-    options: { username: "ADA.L", class: "11B" },
+    options: { "record-username": "ADA.L", class: "11B" },
   });
   await runUserCommand(edited, { users });
   assert.equal(users.findByUsername("g1", "ada.l").class, "11B");
