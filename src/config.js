@@ -27,6 +27,19 @@ function readNumber(value, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } 
   return Math.min(max, Math.max(min, number));
 }
 
+/**
+ * The forum channel that holds one post per user record. Unset means the default
+ * forum; "off" turns the forum posts off and keeps records in the database only.
+ */
+const DEFAULT_USER_FORUM_ID = "1575034106188922963";
+const OFF_VALUES = /^(off|none|no|false|0|-)$/i;
+
+function readChannelId(value, fallback) {
+  const text = value?.trim();
+  if (!text) return fallback;
+  return OFF_VALUES.test(text) ? null : text;
+}
+
 const port =
   Number.parseInt(process.env.SERVER_PORT ?? process.env.PORT ?? "3000", 10) || 3000;
 
@@ -59,6 +72,7 @@ export const config = {
   levelsFile: process.env.LEVELS_FILE?.trim() || "data/levels.json",
   countingFile: process.env.COUNTING_FILE?.trim() || "data/counting.json",
   usersFile: process.env.USERS_FILE?.trim() || "data/users.json",
+  usersForumId: readChannelId(process.env.USERS_FORUM_CHANNEL_ID, DEFAULT_USER_FORUM_ID),
   xpMin: readNumber(process.env.XP_MIN_PER_MESSAGE, 15, { max: 10_000 }),
   xpMax: readNumber(process.env.XP_MAX_PER_MESSAGE, 25, { max: 10_000 }),
   xpCooldownSeconds: readNumber(process.env.XP_COOLDOWN_SECONDS, 60, { max: 86_400 }),

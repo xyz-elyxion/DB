@@ -284,6 +284,27 @@ record. Records are private by default — `/user-info` only posts publicly when
 | `/edit-user member [first-name] [last-name] [email] [username] [date-of-birth] [class] [gender] [roles] [clear-roles]` | Changes only the fields you give; `roles` replaces the list and `clear-roles` empties it | Manage Server |
 | `/delete-user member` | Deletes the record | Manage Server |
 
+### The user forum
+
+Every record also gets its own post in one forum channel — by default
+`1575034106188922963`, change it with `USERS_FORUM_CHANNEL_ID` (or set it to
+`off` to keep records in the database only). The post's title is
+`First Last (username)` and its starter message is the same card `/user-info`
+shows.
+
+- `/create-user` opens the post.
+- `/edit-user` rewrites that same post — new title, new card — so it can always
+  be changed afterwards.
+- `/delete-user` turns the card into a *Record deleted* notice, locks the post
+  and archives it; nothing is hard-deleted.
+- Any record created before the forum was set up is posted on the next startup.
+
+The bot needs *View Channel*, *Send Messages in Threads* and *Create Public
+Threads* in the forum (plus *Manage Threads* to rename, lock and archive posts).
+
+The thread id is stored with the record, so the forum survives restarts. If the
+forum channel can't be found the commands still work and say so in the console.
+
 ## What is mirrored
 
 When it starts:

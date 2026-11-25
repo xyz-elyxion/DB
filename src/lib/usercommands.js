@@ -1,13 +1,6 @@
-import {
-  EmbedBuilder,
-  MessageFlags,
-  PermissionFlagsBits,
-  SlashCommandBuilder,
-} from "discord.js";
+import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 import { UserError, describeError } from "./errors.js";
-import { ageFromDateOfBirth } from "./users.js";
-
-const COLOR = 0xeb459e;
+import { retireUserPost, syncUserPost, userRecordEmbed } from "./userposts.js";
 
 /** Creating, editing and deleting records is staff work. */
 const GUARDS = {
@@ -153,7 +146,7 @@ const fieldLabel = (field) =>
   PROFILE_FIELDS.find(([, key]) => key === field)?.[2] ?? "Roles";
 
 const HANDLERS = {
-  async "create-user"({ guild, options, users, moderator }) {
+  async "create-user"({ guild, options, users, forum, moderator }) {
     const user = options.getUser("member", true);
     const record = users.create({
       guildId: guild.id,
@@ -169,11 +162,14 @@ const HANDLERS = {
       roles: options.getString("roles") ?? undefined,
     });
 
+    const threadId = await syncUserPost({ forum, users, guild, record });
+
     return {
       message:
         `🗂️ Created a record for <@${user.id}> — **${record.firstName} ${record.lastName}** ` +
         `(\`${record.username}\`).${record.roles.length ? ` Roles: ${record.roles.join(", ")}.` : ""}\n` +
-        `Staff can check it with \`/user-info\` or change it with \`/edit-user\`.`,
+        `Staff can check it with \`/user-info\` or change it with \`/edit-user\`.` +
+        (threadId ? `\nPosted it in the user forum: <#${threadId}>.` : ""),
     };
   },
 
@@ -192,38 +188,12 @@ const HANDLERS = {
       throw new UserError("You don't have a record yet — staff can add one with `/create-user`.");
     }
 
-    const age = ageFromDateOfBirth(record.dateOfBirth);
-    const roles = Array.isArray(record.roles) ? record.roles : [];
-    const name = member?.username ?? record.username;
-
-    const embed = new EmbedBuilder()
-      .setColor(COLOR)
-      .setAuthor({ name })
-      .setTitle("User record")
-      .addFields(
-        { name: "First name", value: record.firstName, inline: true },
-        { name: "Last name", value: record.lastName, inline: true },
-        { name: "Username", value: record.username, inline: true },
-        { name: "Email", value: record.email, inline: true },
-        {
-          name: "Date of birth",
-          value: age === null ? record.dateOfBirth : `${record.dateOfBirth} (age ${age})`,
-          inline: true,
-        },
-        { name: "Class", value: record.class, inline: true },
-        { name: "Gender", value: record.gender, inline: true },
-        { name: "Discord", value: `<@${record.userId}>`, inline: true },
-        {
-          name: "Roles",
-          value: roles.length ? roles.map((role) => `\`${role}\``).join(", ") : "None",
-        },
-      )
-      .setFooter({ text: `Last updated ${record.updatedAt?.slice(0, 10) ?? "unknown"}` });
-
-    return { embeds: [embed] };
+    return {
+      embeds: [userRecordEmbed(record, { authorName: member?.username ?? record.username })],
+    };
   },
 
-  async "edit-user"({ guild, options, users }) {
+  async "edit-user"({ guild, options, users, forum }) {
     const user = options.getUser("member", true);
     const patch = {};
 
@@ -240,20 +210,27 @@ const HANDLERS = {
     }
 
     const { record, changed } = users.update({ guildId: guild.id, userId: user.id, ...patch });
+    const threadId = await syncUserPost({ forum, users, guild, record });
+
     return {
       message:
         `✏️ Updated <@${user.id}>: ${changed.map(fieldLabel).join(", ")}.\n` +
-        `**${record.firstName} ${record.lastName}** — \`${record.username}\`.`,
+        `**${record.firstName} ${record.lastName}** — \`${record.username}\`.` +
+        (threadId ? `\nThe forum post is up to date: <#${threadId}>.` : ""),
     };
   },
 
-  async "delete-user"({ guild, options, users }) {
+  async "delete-user"({ guild, options, users, forum }) {
     const user = options.getUser("member", true);
     const removed = users.remove(guild.id, user.id);
     if (!removed) throw new UserError(`<@${user.id}> doesn't have a record.`);
 
+    const threadId = await retireUserPost({ forum, guild, record: removed });
+
     return {
-      message: `🗑️ Deleted the record of **${removed.firstName} ${removed.lastName}** (<@${user.id}>).`,
+      message:
+        `🗑️ Deleted the record of **${removed.firstName} ${removed.lastName}** (<@${user.id}>).` +
+        (threadId ? `\nArchived its forum post: <#${threadId}>.` : ""),
     };
   },
 };

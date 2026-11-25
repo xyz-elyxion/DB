@@ -324,6 +324,21 @@ export function createUserStore({ file = null, guildId = null } = {}) {
       return { record, before: existing, changed: Object.keys(changes) };
     },
 
+    /**
+     * Store bookkeeping fields that aren't part of the profile — currently the
+     * forum post the record lives in. Never touches the validated fields.
+     */
+    setMeta({ guildId: gid = guildId, userId, meta } = {}) {
+      const guild = bucket(gid);
+      const existing = guild.users[userId];
+      if (!existing) return null;
+
+      const record = { ...existing, ...meta };
+      guild.users[userId] = record;
+      save();
+      return record;
+    },
+
     /** Returns the deleted record, or null when there was nothing to delete. */
     remove(gid = guildId, userId) {
       const guild = bucket(gid);

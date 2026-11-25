@@ -21,6 +21,7 @@ import { planReplication } from "./lib/planner.js";
 import { previewName } from "./lib/preview.js";
 import { snapshotGuild } from "./lib/snapshot.js";
 import { USER_COMMANDS, runUserCommand } from "./lib/usercommands.js";
+import { createUserForum, syncExistingUserPosts } from "./lib/userposts.js";
 import { createUserStore } from "./lib/users.js";
 
 try {
@@ -80,6 +81,9 @@ const counting = createCountingStore({ file: config.countingFile, guildId: confi
 // Member records: names, emails, birthdays and the roles section, on disk.
 const users = createUserStore({ file: config.usersFile });
 
+// Every record also gets a post in the user forum, which follows the record.
+const userForum = createUserForum({ channelId: config.usersForumId });
+
 // The preview guild, once the bot has connected.
 let previewGuild = null;
 
@@ -134,7 +138,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   const handledByCounting = await runCountingCommand(interaction, { counting });
   if (handledByCounting) return;
 
-  const handledByUsers = await runUserCommand(interaction, { users });
+  const handledByUsers = await runUserCommand(interaction, { users, forum: userForum });
   if (handledByUsers) return;
 
   await runModerationCommand(interaction, {
@@ -373,6 +377,9 @@ client.once(Events.ClientReady, async (readyClient) => {
   await live.attach(source, target);
   liveReady = true;
   levelsReady = true;
+
+  const posted = await syncExistingUserPosts({ forum: userForum, users, guild: source });
+  if (posted > 0) console.log(`Posted ${posted} stored user record(s) in the user forum.`);
 
   if (!config.enableMessageContent) {
     console.warn(
