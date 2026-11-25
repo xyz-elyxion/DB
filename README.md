@@ -310,6 +310,12 @@ shows.
 The bot needs *View Channel*, *Send Messages in Threads* and *Create Public
 Threads* in the forum (plus *Manage Threads* to rename, lock and archive posts).
 
+A forum post is a new channel, and Discord rate-limits channel creation to
+roughly fifty in a burst — after that the API makes the bot wait minutes. New
+posts are therefore spaced 2.5 seconds apart (`FORUM_POST_DELAY_MS`), so a large
+import arrives steadily instead of stalling halfway; the reply counts up every
+ten posts while it works.
+
 The thread id is stored with the record, so the forum survives restarts. If the
 forum channel can't be found the commands still work and say so in the console.
 

@@ -73,6 +73,9 @@ export const config = {
   countingFile: process.env.COUNTING_FILE?.trim() || "data/counting.json",
   usersFile: process.env.USERS_FILE?.trim() || "data/users.json",
   usersForumId: readChannelId(process.env.USERS_FORUM_CHANNEL_ID, DEFAULT_USER_FORUM_ID),
+  // A forum post is a channel, so Discord rate-limits creations hard: pace them
+  // instead of bursting into a multi-minute 429.
+  forumPostDelayMs: readNumber(process.env.FORUM_POST_DELAY_MS, 2500, { max: 60_000 }),
   xpMin: readNumber(process.env.XP_MIN_PER_MESSAGE, 15, { max: 10_000 }),
   xpMax: readNumber(process.env.XP_MAX_PER_MESSAGE, 25, { max: 10_000 }),
   xpCooldownSeconds: readNumber(process.env.XP_COOLDOWN_SECONDS, 60, { max: 86_400 }),

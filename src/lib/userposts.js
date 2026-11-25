@@ -59,8 +59,21 @@ function deletedEmbed(record) {
  * editing the record renames it and rewrites the card; deleting the record turns
  * the card into a notice and archives the post, so nothing is lost.
  */
-export function createUserForum({ channelId = null, reason = REASON } = {}) {
+export function createUserForum({ channelId = null, reason = REASON, delayMs = 0 } = {}) {
   const warned = new Set();
+  let lastCreateAt = 0;
+
+  /**
+   * A forum post is a channel, and Discord only lets a bot create so many a
+   * minute. Bursting to that limit earns a 429 that waits minutes, so creations
+   * are spaced out instead.
+   */
+  async function waitForTurn() {
+    if (!delayMs || delayMs <= 0) return;
+    const wait = lastCreateAt + delayMs - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    lastCreateAt = Date.now();
+  }
 
   async function channelFor(guild) {
     if (!channelId || !guild) return null;
@@ -126,6 +139,7 @@ export function createUserForum({ channelId = null, reason = REASON } = {}) {
         return existing.id;
       }
 
+      await waitForTurn();
       const thread = await forum.threads.create({
         name: forumThreadName(record),
         message: { embeds: [userRecordEmbed(record)] },

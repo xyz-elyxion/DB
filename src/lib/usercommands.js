@@ -369,8 +369,19 @@ const HANDLERS = {
     }
 
     let posted = 0;
-    for (const record of added) {
+    for (const [index, record] of added.entries()) {
       if (await syncUserPost({ forum, users, guild, record })) posted += 1;
+
+      // Discord throttles post creation; keep the reply moving every so often so
+      // waiting on the limit doesn't look like a stall.
+      const done = index + 1;
+      if (forum?.channelId && done < added.length && done % 10 === 0) {
+        await respond?.({
+          content:
+            `🗂️ Added **${added.length}** record(s). Posted **${done}** of them in ` +
+            `<#${forum.channelId}>…`,
+        });
+      }
     }
 
     const lines = [`🗂️ Added **${added.length}** record(s) to the database.`];

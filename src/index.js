@@ -82,12 +82,15 @@ const counting = createCountingStore({ file: config.countingFile, guildId: confi
 const users = createUserStore({ file: config.usersFile });
 
 // Every record also gets a post in the user forum, which follows the record.
-const userForum = createUserForum({ channelId: config.usersForumId });
+const userForum = createUserForum({
+  channelId: config.usersForumId,
+  delayMs: config.forumPostDelayMs,
+});
 
 // Says where records live, so a wrong or unwritable path is obvious at a glance.
 console.log(
   `User records: ${users.count(config.sourceId)} loaded from ${config.usersFile} ` +
-    `(forum ${config.usersForumId ?? "off"}).`,
+    `(forum ${config.usersForumId ?? "off"}, ${config.forumPostDelayMs} ms between new posts).`,
 );
 
 // The preview guild, once the bot has connected.

@@ -33,7 +33,7 @@ const OPTIONS = {
 };
 
 /** A forum channel that hands back real-shaped threads with a starter message. */
-function fakeWorld({ channelId = "forum" } = {}) {
+function fakeWorld({ channelId = "forum", delayMs = 0 } = {}) {
   const posts = [];
 
   const channel = {
@@ -87,7 +87,7 @@ function fakeWorld({ channelId = "forum" } = {}) {
     },
   };
 
-  return { guild, posts, forum: createUserForum({ channelId }) };
+  return { guild, posts, forum: createUserForum({ channelId, delayMs }) };
 }
 
 function interactionFor(commandName, options, guild = { id: "g1", name: "Main" }) {
@@ -175,6 +175,27 @@ test("creating a record opens a forum post and remembers it", async () => {
   assert.equal(posts[0].thread.name, "Ada Lovelace (ada.l)");
   assert.equal(posts[0].message.embeds[0].toJSON().fields[0].value, "Ada");
   assert.equal(users.get("g1", "u1").forumThreadId, "t1", "the thread id is stored");
+});
+
+test("new posts are spaced out so Discord's thread limit isn't hit", async () => {
+  const { guild, posts, forum } = fakeWorld({ delayMs: 40 });
+  const users = createUserStore({ guildId: "g1" });
+
+  const started = Date.now();
+  for (const [index, username] of ["one", "two", "three"].entries()) {
+    const record = users.create({
+      guildId: "g1",
+      userId: `u${index}`,
+      ...FIELDS,
+      username,
+      email: `${username}@example.com`,
+    });
+    await syncUserPost({ forum, users, guild, record });
+  }
+  const elapsed = Date.now() - started;
+
+  assert.equal(posts.length, 3);
+  assert.ok(elapsed >= 70, `two gaps of 40 ms should have been waited (took ${elapsed} ms)`);
 });
 
 test("editing a record rewrites the same post instead of making a new one", async () => {

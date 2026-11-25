@@ -300,6 +300,48 @@ test("the command acknowledges at once and reports records before forum posts", 
   assert.equal(posts.length, 2);
 });
 
+test("progress is reported while the forum posts are made", async () => {
+  const { guild, posts, forum } = fakeForum();
+  const users = createUserStore({ guildId: "g1" });
+  const records = "abcdefghijk"
+    .split("")
+    .map(
+      (letter) =>
+        `- | First${letter.toUpperCase()} | Last${letter.toUpperCase()} | person${letter}@example.com | person${letter} |  | 10A | Female`,
+    )
+    .join("\n");
+
+  const deferred = [];
+  const edits = [];
+  const interaction = {
+    commandName: "mass-add-users",
+    guild,
+    guildId: "g1",
+    user: { id: "mod" },
+    member: { id: "mod", permissions: { has: () => true } },
+    options: {
+      getString: (name) => (name === "records" ? records : null),
+      getBoolean: () => null,
+      getUser: () => null,
+      getAttachment: () => null,
+    },
+    async deferReply(payload) {
+      deferred.push(payload ?? {});
+    },
+    async editReply(payload) {
+      edits.push(payload);
+    },
+  };
+
+  await runUserCommand(interaction, { users, forum });
+
+  assert.equal(users.count("g1"), 11);
+  assert.equal(posts.length, 11);
+  assert.equal(edits.length, 3, "start, progress every ten, then the summary");
+  assert.match(edits[1].content, /Posted \*\*10\*\* of them/);
+  assert.match(edits[2].content, /Posted 11 of them in <#forum>/);
+});
+
 test("the command needs at least one line", async () => {
   const { guild, forum } = fakeForum();
   const users = createUserStore({ guildId: "g1" });
