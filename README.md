@@ -263,6 +263,27 @@ State lives in `COUNTING_FILE` (`data/counting.json`), so the chain survives a
 restart. The bot needs *Add Reactions* and *Send Messages* in that channel, and
 counting reads message text, so it only works while message mirroring is on.
 
+## User database
+
+`/create-user` stores a member's first name, last name, email, username, date of
+birth, class, gender and a list of roles. Each record belongs to one Discord
+member in one server and is saved to `USERS_FILE` (`data/users.json`), so it
+survives restarts. Usernames and emails are unique within a server (compared
+without case), so two people can't claim the same one.
+
+Dates of birth are accepted as `YYYY-MM-DD` or `DD/MM/YYYY` and stored as
+`YYYY-MM-DD`; impossible days and future dates are rejected. Roles are
+comma-separated (`Student, Prefect`) and appear as their own section on the
+record. Records are private by default — `/user-info` only posts publicly when
+`public` is set.
+
+| Command | What it does | Needs |
+| --- | --- | --- |
+| `/create-user member first-name last-name email username date-of-birth class gender [roles]` | Adds a record; roles are comma-separated | Manage Server |
+| `/user-info [member] [username] [public]` | Shows a record — yours by default | — |
+| `/edit-user member [first-name] [last-name] [email] [username] [date-of-birth] [class] [gender] [roles] [clear-roles]` | Changes only the fields you give; `roles` replaces the list and `clear-roles` empties it | Manage Server |
+| `/delete-user member` | Deletes the record | Manage Server |
+
 ## What is mirrored
 
 When it starts:

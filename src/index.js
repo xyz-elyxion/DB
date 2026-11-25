@@ -20,6 +20,8 @@ import { MOD_COMMANDS, postCase, runModerationCommand } from "./lib/moderation.j
 import { planReplication } from "./lib/planner.js";
 import { previewName } from "./lib/preview.js";
 import { snapshotGuild } from "./lib/snapshot.js";
+import { USER_COMMANDS, runUserCommand } from "./lib/usercommands.js";
+import { createUserStore } from "./lib/users.js";
 
 try {
   assertConfig();
@@ -75,6 +77,9 @@ const levels = createLevelStore({
 // The counting channel, saved so a restart doesn't lose the chain.
 const counting = createCountingStore({ file: config.countingFile, guildId: config.sourceId });
 
+// Member records: names, emails, birthdays and the roles section, on disk.
+const users = createUserStore({ file: config.usersFile });
+
 // The preview guild, once the bot has connected.
 let previewGuild = null;
 
@@ -128,6 +133,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   const handledByCounting = await runCountingCommand(interaction, { counting });
   if (handledByCounting) return;
+
+  const handledByUsers = await runUserCommand(interaction, { users });
+  if (handledByUsers) return;
 
   await runModerationCommand(interaction, {
     cases,
@@ -354,7 +362,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   previewGuild = target;
   await inviteGuard.prime(target);
 
-  const commands = [...MOD_COMMANDS, ...LEVEL_COMMANDS, ...COUNTING_COMMANDS];
+  const commands = [...MOD_COMMANDS, ...LEVEL_COMMANDS, ...COUNTING_COMMANDS, ...USER_COMMANDS];
   try {
     await source.commands.set(commands.map((command) => command.toJSON()));
     console.log(`Registered ${commands.length} command(s) in ${source.name}.`);

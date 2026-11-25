@@ -1,0 +1,337 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { UserError } from "./errors.js";
+
+export const MAX_ROLES = 10;
+export const MAX_ROLE_LENGTH = 32;
+
+const NAME_PATTERN = /^[\p{L}\p{M}][\p{L}\p{M}' .-]*$/u;
+const USERNAME_PATTERN = /^[A-Za-z0-9._-]{2,32}$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+const GENDER_PATTERN = /^[\p{L}\p{M}' .-]{2,32}$/u;
+const CLASS_PATTERN = /^[\p{L}\p{N}\p{M} '.,&/()#-]{1,40}$/u;
+
+const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
+
+/**
+ * Read a date of birth as YYYY-MM-DD or DD/MM/YYYY (also DD-MM-YYYY) and store
+ * it as ISO YYYY-MM-DD. Impossible days (31/02) and future dates are rejected.
+ */
+export function parseDateOfBirth(value, { now = new Date() } = {}) {
+  const text = String(value ?? "").trim();
+  let year;
+  let month;
+  let day;
+
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
+  if (iso) {
+    [, year, month, day] = iso;
+  } else {
+    const local = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(text);
+    if (!local) return null;
+    [, day, month, year] = local;
+  }
+
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  if (y < 1900 || y > 9999 || m < 1 || m > 12 || d < 1 || d > 31) return null;
+
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) {
+    return null;
+  }
+
+  const today = now instanceof Date ? now : new Date(now);
+  const todayStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  if (date.getTime() > todayStart) return null;
+
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/** Whole years since an ISO date of birth, or null when it isn't one. */
+export function ageFromDateOfBirth(iso, { now = new Date() } = {}) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ""));
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const today = now instanceof Date ? now : new Date(now);
+  const todayMonth = today.getUTCMonth() + 1;
+  const todayDay = today.getUTCDate();
+
+  let age = today.getUTCFullYear() - year;
+  if (todayMonth < month || (todayMonth === month && todayDay < day)) age -= 1;
+  return Math.max(0, age);
+}
+
+/** "Student, Prefect" -> ["Student", "Prefect"]; an empty string clears them. */
+export function parseRoles(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return [];
+
+  const roles = [];
+  for (const raw of text.split(",")) {
+    const role = clean(raw);
+    if (!role) continue;
+    if (role.length > MAX_ROLE_LENGTH) {
+      throw new UserError(`Each role name must be ${MAX_ROLE_LENGTH} characters or fewer.`);
+    }
+    if (!roles.some((existing) => existing.toLowerCase() === role.toLowerCase())) roles.push(role);
+  }
+
+  if (roles.length > MAX_ROLES) {
+    throw new UserError(`A user can have at most ${MAX_ROLES} roles.`);
+  }
+  return roles;
+}
+
+/**
+ * Validate and tidy one record. Full profiles need every field; partial ones
+ * (used by /edit-user) only touch the fields that were given.
+ */
+export function normalizeProfile(input = {}, { partial = false } = {}) {
+  const profile = {};
+
+  const read = (key) => {
+    const value = input?.[key];
+    return value === undefined || value === null ? undefined : String(value);
+  };
+  const wanted = (key) => (partial ? read(key) !== undefined : true);
+  const text = (key, label, max) => {
+    const value = clean(read(key));
+    if (!value) throw new UserError(`${label} is required.`);
+    if (value.length > max) throw new UserError(`${label} must be ${max} characters or fewer.`);
+    return value;
+  };
+
+  if (wanted("firstName")) {
+    const value = text("firstName", "First name", 50);
+    if (!NAME_PATTERN.test(value)) {
+      throw new UserError(
+        "First name can only contain letters, spaces, apostrophes, periods and hyphens.",
+      );
+    }
+    profile.firstName = value;
+  }
+
+  if (wanted("lastName")) {
+    const value = text("lastName", "Last name", 50);
+    if (!NAME_PATTERN.test(value)) {
+      throw new UserError(
+        "Last name can only contain letters, spaces, apostrophes, periods and hyphens.",
+      );
+    }
+    profile.lastName = value;
+  }
+
+  if (wanted("email")) {
+    const value = text("email", "Email", 254).toLowerCase();
+    if (!EMAIL_PATTERN.test(value)) {
+      throw new UserError("That email doesn't look right — it should look like name@example.com.");
+    }
+    profile.email = value;
+  }
+
+  if (wanted("username")) {
+    const value = text("username", "Username", 32);
+    if (!USERNAME_PATTERN.test(value)) {
+      throw new UserError(
+        "Username must be 2–32 characters: letters, numbers, dots, underscores or hyphens.",
+      );
+    }
+    profile.username = value;
+  }
+
+  if (wanted("dateOfBirth")) {
+    const value = clean(read("dateOfBirth"));
+    if (!value) throw new UserError("Date of birth is required.");
+    const iso = parseDateOfBirth(value);
+    if (!iso) {
+      throw new UserError(
+        "Date of birth must be a real date in the past, like 2005-04-12 or 12/04/2005.",
+      );
+    }
+    const age = ageFromDateOfBirth(iso);
+    if (age === null || age > 120) {
+      throw new UserError("Date of birth can't be more than 120 years ago.");
+    }
+    profile.dateOfBirth = iso;
+  }
+
+  if (wanted("class")) {
+    const value = text("class", "Class", 40);
+    if (!CLASS_PATTERN.test(value)) {
+      throw new UserError(
+        "Class can only contain letters, numbers, spaces and ' . , & / ( ) # -.",
+      );
+    }
+    profile.class = value;
+  }
+
+  if (wanted("gender")) {
+    const value = text("gender", "Gender", 32);
+    if (!GENDER_PATTERN.test(value)) {
+      throw new UserError(
+        "Gender must be 2–32 letters, spaces, apostrophes, periods or hyphens.",
+      );
+    }
+    profile.gender = value;
+  }
+
+  if (read("roles") !== undefined) profile.roles = parseRoles(read("roles"));
+
+  if (partial && Object.keys(profile).length === 0) {
+    throw new UserError("Give at least one field to change.");
+  }
+
+  return profile;
+}
+
+/**
+ * JSON-backed member records: one file per bot, one bucket per server. Usernames
+ * and emails are unique inside a server (compared without case).
+ */
+export function createUserStore({ file = null, guildId = null } = {}) {
+  let guilds = {};
+
+  if (file && existsSync(file)) {
+    try {
+      const parsed = JSON.parse(readFileSync(file, "utf8"));
+      guilds = parsed && typeof parsed.guilds === "object" && parsed.guilds ? parsed.guilds : {};
+    } catch (error) {
+      console.warn(`Could not read ${file}, starting with no user records: ${error.message}`);
+    }
+  }
+
+  function save() {
+    if (!file) return;
+    try {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, `${JSON.stringify({ guilds }, null, 2)}\n`);
+    } catch (error) {
+      console.error(`Could not save user records to ${file}: ${error.message}`);
+    }
+  }
+
+  function bucket(gid = guildId) {
+    const guild = (guilds[gid] ??= {});
+    guild.users ??= {};
+    return guild;
+  }
+
+  function records(gid) {
+    return Object.values(bucket(gid).users);
+  }
+
+  function clash(gid, field, value, exceptUserId) {
+    const needle = String(value ?? "").toLowerCase();
+    if (!needle) return null;
+    return (
+      records(gid).find(
+        (record) =>
+          record.userId !== exceptUserId &&
+          String(record[field] ?? "").toLowerCase() === needle,
+      ) ?? null
+    );
+  }
+
+  return {
+    get(gid = guildId, userId) {
+      return bucket(gid).users[userId] ?? null;
+    },
+
+    count(gid = guildId) {
+      return records(gid).length;
+    },
+
+    /** Everyone, sorted by name, for listings. */
+    all(gid = guildId) {
+      return records(gid).sort((a, b) =>
+        `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`),
+      );
+    },
+
+    findByUsername(gid = guildId, username) {
+      const needle = String(username ?? "").trim().toLowerCase();
+      if (!needle) return null;
+      return (
+        records(gid).find((record) => String(record.username).toLowerCase() === needle) ?? null
+      );
+    },
+
+    create({ guildId: gid = guildId, userId, createdBy = null, ...fields } = {}) {
+      if (!gid) throw new UserError("A server is required to store a user record.");
+      if (!userId) throw new UserError("A member is required.");
+
+      const guild = bucket(gid);
+      if (guild.users[userId]) {
+        throw new UserError(`<@${userId}> already has a record — use \`/edit-user\` to change it.`);
+      }
+
+      const profile = normalizeProfile(fields);
+      profile.roles ??= [];
+
+      const usernameClash = clash(gid, "username", profile.username, userId);
+      if (usernameClash) {
+        throw new UserError(
+          `The username **${profile.username}** is already used by <@${usernameClash.userId}>.`,
+        );
+      }
+
+      const emailClash = clash(gid, "email", profile.email, userId);
+      if (emailClash) {
+        throw new UserError(`That email is already registered to <@${emailClash.userId}>.`);
+      }
+
+      const now = new Date().toISOString();
+      const record = { userId, ...profile, createdAt: now, updatedAt: now, createdBy };
+      guild.users[userId] = record;
+      save();
+      return record;
+    },
+
+    update({ guildId: gid = guildId, userId, ...patch } = {}) {
+      const guild = bucket(gid);
+      const existing = guild.users[userId];
+      if (!existing) {
+        throw new UserError(
+          `<@${userId}> doesn't have a record yet — use \`/create-user\` to add one.`,
+        );
+      }
+
+      const changes = normalizeProfile(patch, { partial: true });
+
+      if (changes.username) {
+        const usernameClash = clash(gid, "username", changes.username, userId);
+        if (usernameClash) {
+          throw new UserError(
+            `The username **${changes.username}** is already used by <@${usernameClash.userId}>.`,
+          );
+        }
+      }
+      if (changes.email) {
+        const emailClash = clash(gid, "email", changes.email, userId);
+        if (emailClash) {
+          throw new UserError(`That email is already registered to <@${emailClash.userId}>.`);
+        }
+      }
+
+      const record = { ...existing, ...changes, updatedAt: new Date().toISOString() };
+      guild.users[userId] = record;
+      save();
+      return { record, before: existing, changed: Object.keys(changes) };
+    },
+
+    /** Returns the deleted record, or null when there was nothing to delete. */
+    remove(gid = guildId, userId) {
+      const guild = bucket(gid);
+      const existing = guild.users[userId] ?? null;
+      if (!existing) return null;
+      delete guild.users[userId];
+      save();
+      return existing;
+    },
+  };
+}
