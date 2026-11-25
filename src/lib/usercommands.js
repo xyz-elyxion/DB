@@ -1,5 +1,6 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 import { UserError, describeError } from "./errors.js";
+import { addMassRecords } from "./massusers.js";
 import { retireUserPost, syncUserPost, userRecordEmbed } from "./userposts.js";
 
 /** Creating, editing and deleting records is staff work. */
@@ -7,6 +8,7 @@ const GUARDS = {
   "create-user": { bit: PermissionFlagsBits.ManageGuild, label: "Manage Server" },
   "edit-user": { bit: PermissionFlagsBits.ManageGuild, label: "Manage Server" },
   "delete-user": { bit: PermissionFlagsBits.ManageGuild, label: "Manage Server" },
+  "mass-add-users": { bit: PermissionFlagsBits.ManageGuild, label: "Manage Server" },
 };
 
 /** Slash option name -> stored field, plus the label used in replies. */
@@ -140,6 +142,24 @@ export const USER_COMMANDS = [
     .addUserOption((option) =>
       option.setName("member").setDescription("Whose record to delete").setRequired(true),
     ),
+
+  new SlashCommandBuilder()
+    .setName("mass-add-users")
+    .setDescription("Add many records at once from pasted lines or an attached file.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addStringOption((option) =>
+      option
+        .setName("records")
+        .setDescription(
+          "One per line: member | first | last | email | username | birthday | class | gender | roles",
+        )
+        .setMaxLength(4000),
+    )
+    .addAttachmentOption((option) =>
+      option
+        .setName("file")
+        .setDescription("Optional .txt or .csv with the same lines (up to 100 records)"),
+    ),
 ];
 
 const fieldLabel = (field) =>
@@ -233,7 +253,78 @@ const HANDLERS = {
         (threadId ? `\nArchived its forum post: <#${threadId}>.` : ""),
     };
   },
+
+  async "mass-add-users"({
+    guild,
+    options,
+    users,
+    forum,
+    moderator,
+    readAttachment = readAttachmentText,
+  }) {
+    const pasted = options.getString("records") ?? "";
+    const file = options.getAttachment?.("file") ?? null;
+
+    let text = pasted;
+    if (file) text = [pasted, await readAttachment(file)].filter(Boolean).join("\n");
+    if (!text.trim()) {
+      throw new UserError(
+        "Paste at least one line, or attach a .txt/.csv file. One record per line: " +
+          "member | first name | last name | email | username | date of birth | class | gender | roles",
+      );
+    }
+
+    const { added, problems } = addMassRecords({
+      users,
+      guildId: guild.id,
+      text,
+      createdBy: moderator?.id ?? null,
+    });
+
+    let posted = 0;
+    for (const record of added) {
+      if (await syncUserPost({ forum, users, guild, record })) posted += 1;
+    }
+
+    const lines = [`🗂️ Added **${added.length}** record(s) to the database.`];
+    if (posted > 0) lines[0] += ` Posted ${posted} of them in <#${forum.channelId}>.`;
+    if (problems.length > 0) {
+      lines.push(`⚠️ Skipped **${problems.length}** line(s):`);
+      for (const problem of problems) {
+        lines.push(
+          `• line ${problem.line}${problem.text ? ` (${problem.text})` : ""} — ${problem.reason}`,
+        );
+      }
+    }
+
+    return { message: shorten(lines.join("\n")) };
+  },
 };
+
+/** Discord hosts uploads on its CDN; read the text of one attached list. */
+async function readAttachmentText(attachment) {
+  if (typeof attachment?.url !== "string") throw new UserError("That attachment can't be read.");
+
+  let response;
+  try {
+    response = await fetch(attachment.url);
+  } catch (error) {
+    throw new UserError(`Could not download the file — ${describeError(error)}`);
+  }
+  if (!response.ok) throw new UserError(`Could not download the file (HTTP ${response.status}).`);
+
+  const text = await response.text();
+  if (text.length > 200_000) {
+    throw new UserError("That file is too big — keep it under 200,000 characters.");
+  }
+  return text;
+}
+
+/** Discord rejects messages over 2000 characters, and a long list of skips adds up. */
+function shorten(text, max = 1900) {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 24).trimEnd()}\n… and more (list shortened)`;
+}
 
 function requirePermission(member, guard) {
   const permissions = member?.permissions;

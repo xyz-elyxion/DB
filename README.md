@@ -283,6 +283,7 @@ record. Records are private by default — `/user-info` only posts publicly when
 | `/user-info [member] [username] [public]` | Shows a record — yours by default | — |
 | `/edit-user member [first-name] [last-name] [email] [username] [date-of-birth] [class] [gender] [roles] [clear-roles]` | Changes only the fields you give; `roles` replaces the list and `clear-roles` empties it | Manage Server |
 | `/delete-user member` | Deletes the record | Manage Server |
+| `/mass-add-users [records] [file]` | Adds up to 100 records at once from pasted lines or a `.txt`/`.csv` attachment | Manage Server |
 
 ### The user forum
 
@@ -304,6 +305,28 @@ Threads* in the forum (plus *Manage Threads* to rename, lock and archive posts).
 
 The thread id is stored with the record, so the forum survives restarts. If the
 forum channel can't be found the commands still work and say so in the console.
+
+### Adding records in bulk
+
+`/mass-add-users` takes one record per line, either pasted into `records` or in an
+attached `.txt`/`.csv` file (both can be used together):
+
+```
+member | first name | last name | email | username | date of birth | class | gender | roles
+<@123456789012345678> | Ada | Lovelace | ada@example.com | ada.l | 1990-12-10 | 10A | Female | Student, Prefect
+<@987654321098765432> | Grace | Hopper | grace@example.com | grace.h | 1906-12-09 | 11B | Female
+```
+
+- `member` is a mention (`<@id>`) or the numeric user ID; the rest are the same
+  fields `/create-user` takes, and `roles` stays one comma-separated field.
+- Fields can be separated by `|`, a tab or `;` — handy when pasting from a sheet.
+- Blank lines, `#` lines and `//` lines are ignored, so a header row can be kept
+  commented out.
+- Each line is checked on its own: good lines are added and posted in the forum,
+  and bad ones are listed back with their line number and the reason (bad email,
+  taken username, already has a record, and so on).
+- Up to 100 records per run; run it again for the next batch. The reply is
+  private, and long lists of skipped lines are shortened to fit Discord's limit.
 
 ## What is mirrored
 
