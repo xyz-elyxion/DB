@@ -358,7 +358,7 @@ member | first name | last name | email | username | date of birth | class | gen
 
 Start a message with **Dave** and the bot answers from the student database —
 who someone is, which class they are in, their email, their roles. Every word of
-the answer is written by a Hugging Face model: the bot only sends it the records
+the answer is written by an AI model: the bot only sends it the records
 that match the question, so Dave answers from the database instead of inventing
 a student.
 
@@ -366,11 +366,23 @@ a student.
 Dave what class is Jackson Zhu in?
 ```
 
-- Set `HUGGINGFACE_API_KEY` to a token with Inference Providers access from
-  [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens), and
-  `HUGGINGFACE_MODEL` if you want a different model (default
-  `meta-llama/Llama-3.1-8B-Instruct`). Without a key Dave says he isn't
-  connected — he never falls back to a local guess.
+- Dave needs a key for an OpenAI-compatible chat model. Hugging Face is the
+  default (`HUGGINGFACE_API_KEY`, `HUGGINGFACE_MODEL`), but its Inference
+  Providers are billed in pre-paid credits: an unfunded token answers HTTP 402
+  "purchase pre-paid credits". Point him at a free provider instead with
+  `DAVE_API_URL`, `DAVE_API_KEY` and `DAVE_MODEL`, which win over the Hugging
+  Face ones. Groq's free plan needs no card:
+
+  ```
+  DAVE_API_URL=https://api.groq.com/openai/v1/chat/completions
+  DAVE_API_KEY=gsk_...            # console.groq.com/keys
+  DAVE_MODEL=openai/gpt-oss-20b
+  ```
+
+  OpenRouter (`https://openrouter.ai/api/v1`, model ids ending in `:free`) and
+  Gemini (`https://generativelanguage.googleapis.com/v1beta/openai/`) work the
+  same way. Without any key Dave says he isn't connected — he never falls back
+  to a local guess.
 - Anyone in the main server or the preview server can ask straight away.
 - Everyone else — another server the bot is in, or a direct message — needs a
   **one-time key**. A manager in either of the two servers runs `/dave-key`,

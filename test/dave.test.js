@@ -248,7 +248,9 @@ test("askDave explains a missing token, a rejected token and an empty answer", a
         records: RECORDS,
         fetchImpl: async () => huggingFaceReply("", { ok: false, status: 401 }),
       }),
-    (error) => error instanceof UserError && /rejected the token/.test(error.message),
+    (error) =>
+      error instanceof UserError &&
+      /router\.huggingface\.co rejected Dave's API key/.test(error.message),
   );
 
   await assert.rejects(
@@ -272,7 +274,55 @@ test("askDave explains a missing token, a rejected token and an empty answer", a
           throw new Error("network down");
         },
       }),
-    (error) => error instanceof UserError && /couldn't reach Hugging Face/.test(error.message),
+    (error) =>
+      error instanceof UserError &&
+      /Dave couldn't reach router\.huggingface\.co/.test(error.message),
+  );
+});
+
+test("Dave can use any OpenAI-compatible provider, and says what 402 and 429 mean", async () => {
+  const calls = [];
+  const text = await askDave({
+    apiKey: "gsk_test",
+    endpoint: "https://api.groq.com/openai/v1/chat/completions",
+    model: "openai/gpt-oss-20b",
+    question: "who is Borna?",
+    records: RECORDS,
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return huggingFaceReply("Borna Raei is in 11A.");
+    },
+  });
+
+  assert.equal(text, "Borna Raei is in 11A.");
+  assert.equal(calls[0].url, "https://api.groq.com/openai/v1/chat/completions");
+  assert.equal(calls[0].init.headers.authorization, "Bearer gsk_test");
+
+  // Hugging Face's Inference Providers answer 402 until credits are bought.
+  await assert.rejects(
+    () =>
+      askDave({
+        apiKey: "hf_test",
+        question: "who is Borna?",
+        records: RECORDS,
+        fetchImpl: async () => huggingFaceReply("", { ok: false, status: 402 }),
+      }),
+    (error) =>
+      error instanceof UserError &&
+      /pre-paid credits/.test(error.message) &&
+      /DAVE_API_URL/.test(error.message),
+  );
+
+  await assert.rejects(
+    () =>
+      askDave({
+        apiKey: "gsk_test",
+        endpoint: "https://api.groq.com/openai/v1/chat/completions",
+        question: "who is Borna?",
+        records: RECORDS,
+        fetchImpl: async () => huggingFaceReply("", { ok: false, status: 429 }),
+      }),
+    (error) => error instanceof UserError && /rate-limiting/.test(error.message),
   );
 });
 
@@ -380,7 +430,7 @@ test("a direct message can ask with a key, and a failed answer keeps the key", a
     userId: "u9",
   });
   await agent.handleMessage(dm);
-  assert.match(dm.replies[0], /couldn't reach Hugging Face/);
+  assert.match(dm.replies[0], /couldn't reach router\.huggingface\.co/);
   assert.equal(keys.count(), 1, "a failed answer does not spend the key");
 
   fail = false;

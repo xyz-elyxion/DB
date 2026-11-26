@@ -73,12 +73,21 @@ export const config = {
   countingFile: process.env.COUNTING_FILE?.trim() || "data/counting.json",
   usersFile: process.env.USERS_FILE?.trim() || "data/users.json",
   usersForumId: readChannelId(process.env.USERS_FORUM_CHANNEL_ID, DEFAULT_USER_FORUM_ID),
-  // Dave, the student-database assistant. Every answer he gives is written by a
-  // Hugging Face model; without a key he says he isn't connected instead of
-  // inventing an answer from the local records.
-  huggingFaceApiKey: process.env.HUGGINGFACE_API_KEY?.trim() || null,
-  huggingFaceModel:
-    process.env.HUGGINGFACE_MODEL?.trim() || "meta-llama/Llama-3.1-8B-Instruct",
+  // Dave, the student-database assistant. Every answer he gives is written by an
+  // OpenAI-compatible chat model; without a key he says he isn't connected
+  // instead of inventing an answer from the local records. Hugging Face is the
+  // default, but its Inference Providers now need pre-paid credits, so any
+  // compatible endpoint (Groq, OpenRouter, Gemini, a local server) can be used.
+  daveApiUrl:
+    process.env.DAVE_API_URL?.trim() ||
+    process.env.HUGGINGFACE_API_URL?.trim() ||
+    "https://router.huggingface.co/v1/chat/completions",
+  daveApiKey:
+    process.env.DAVE_API_KEY?.trim() || process.env.HUGGINGFACE_API_KEY?.trim() || null,
+  daveModel:
+    process.env.DAVE_MODEL?.trim() ||
+    process.env.HUGGINGFACE_MODEL?.trim() ||
+    "meta-llama/Llama-3.1-8B-Instruct",
   // One-time keys for people outside the two servers (/dave-key).
   daveKeysFile: process.env.DAVE_KEYS_FILE?.trim() || "data/dave-keys.json",
   // A forum post is a channel, so Discord rate-limits creations hard: pace them

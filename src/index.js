@@ -4,7 +4,7 @@ import { applyPlan } from "./lib/builder.js";
 import { createCaseStore } from "./lib/cases.js";
 import { COUNTING_COMMANDS, runCountingCommand } from "./lib/countingcommands.js";
 import { createCountingStore } from "./lib/counting.js";
-import { createDaveAgent } from "./lib/dave.js";
+import { createDaveAgent, daveEndpointHost } from "./lib/dave.js";
 import { DAVE_COMMANDS, runDaveCommand } from "./lib/davecommands.js";
 import { createDaveKeyStore } from "./lib/davekeys.js";
 import { UserError } from "./lib/errors.js";
@@ -96,10 +96,11 @@ const users = createUserStore({ file: config.usersFile });
 // One-time keys let someone outside the servers ask Dave (/dave-key makes them).
 const daveKeys = createDaveKeyStore({ file: config.daveKeysFile });
 
-// Dave answers questions about the student database through Hugging Face.
+// Dave answers questions about the student database through an AI provider.
 const dave = createDaveAgent({
-  apiKey: config.huggingFaceApiKey,
-  model: config.huggingFaceModel,
+  apiKey: config.daveApiKey,
+  model: config.daveModel,
+  endpoint: config.daveApiUrl,
   users,
   keys: daveKeys,
   sourceId: config.sourceId,
@@ -120,8 +121,10 @@ console.log(
 
 console.log(
   dave.enabled
-    ? `Dave: on (${config.huggingFaceModel}), ${daveKeys.count()} unused one-time key(s).`
-    : "Dave: off — set HUGGINGFACE_API_KEY to let people ask about the student database.",
+    ? `Dave: on (${config.daveModel} via ${daveEndpointHost(config.daveApiUrl)}), ` +
+        `${daveKeys.count()} unused one-time key(s).`
+    : "Dave: off — set DAVE_API_KEY (or HUGGINGFACE_API_KEY) to let people ask about the " +
+        "student database.",
 );
 
 // The preview guild, once the bot has connected.

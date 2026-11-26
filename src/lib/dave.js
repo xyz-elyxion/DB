@@ -4,9 +4,18 @@ import { UserError, describeError } from "./errors.js";
 export const DAVE_NAME = "Dave";
 export const DEFAULT_MODEL = "meta-llama/Llama-3.1-8B-Instruct";
 
-const ENDPOINT = "https://router.huggingface.co/v1/chat/completions";
+export const DEFAULT_ENDPOINT = "https://router.huggingface.co/v1/chat/completions";
 const MAX_REPLY = 1900;
 const MAX_CONTEXT_RECORDS = 10;
+
+/** Names the provider in errors by its host, so a custom endpoint reads right. */
+export function daveEndpointHost(endpoint = DEFAULT_ENDPOINT) {
+  try {
+    return new URL(endpoint).host;
+  } catch {
+    return "the AI provider";
+  }
+}
 
 const SYSTEM_PROMPT = [
   "You are Dave, the assistant for a school's student database, answering people in Discord.",
@@ -122,7 +131,7 @@ function formatRecord(record) {
   };
 }
 
-/** The system and user messages handed to Hugging Face. */
+/** The system and user messages handed to the chat model. */
 export function buildDaveContext({
   question,
   records = [],
@@ -149,12 +158,13 @@ export function buildDaveContext({
 }
 
 /**
- * Ask Hugging Face. Everything Dave says is this model's answer; there is no
+ * Ask the model provider. Everything Dave says is this model's answer; there is no
  * local fallback that could make up a student.
  */
 export async function askDave({
   apiKey = null,
   model = DEFAULT_MODEL,
+  endpoint = DEFAULT_ENDPOINT,
   question,
   records = [],
   total = records.length,
@@ -166,7 +176,7 @@ export async function askDave({
 } = {}) {
   if (!apiKey) {
     throw new UserError(
-      "Dave isn't connected yet — the bot needs a HUGGINGFACE_API_KEY to answer.",
+      "Dave isn't connected yet — the bot needs DAVE_API_KEY (or HUGGINGFACE_API_KEY) to answer.",
     );
   }
   if (!String(question ?? "").trim()) {
@@ -182,9 +192,11 @@ export async function askDave({
     serverName,
   });
 
+  const host = daveEndpointHost(endpoint);
+
   let response;
   try {
-    response = await fetchImpl(ENDPOINT, {
+    response = await fetchImpl(endpoint, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -203,7 +215,7 @@ export async function askDave({
       signal: timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined,
     });
   } catch (error) {
-    throw new UserError(`Dave couldn't reach Hugging Face — ${describeError(error)}`);
+    throw new UserError(`Dave couldn't reach ${host} — ${describeError(error)}`);
   }
 
   if (!response.ok) {
@@ -214,23 +226,40 @@ export async function askDave({
 
     if (response.status === 401 || response.status === 403) {
       throw new UserError(
-        `Hugging Face rejected the token (HTTP ${response.status}) — check HUGGINGFACE_API_KEY.`,
+        `${host} rejected Dave's API key (HTTP ${response.status}) — check DAVE_API_KEY ` +
+          "(or HUGGINGFACE_API_KEY).",
+      );
+    }
+    if (response.status === 402) {
+      throw new UserError(
+        endpoint === DEFAULT_ENDPOINT
+          ? "Hugging Face now bills its Inference Providers by pre-paid credits, and this " +
+              "token has none (HTTP 402). Either buy credits, or move Dave to a free " +
+              "OpenAI-compatible provider with DAVE_API_URL, DAVE_API_KEY and DAVE_MODEL — " +
+              "Groq's free plan needs no card: https://api.groq.com/openai/v1/chat/completions " +
+              "with model openai/gpt-oss-20b."
+          : `${host} says the account is out of credit (HTTP 402) — top it up, or point ` +
+              "DAVE_API_URL at another provider.",
       );
     }
     if (response.status === 404) {
       throw new UserError(
-        `Hugging Face doesn't know the model **${model}** — set HUGGINGFACE_MODEL to one your account can use.`,
+        `${host} doesn't know the model **${model}** — set DAVE_MODEL (or HUGGINGFACE_MODEL) ` +
+          "to one your account can use.",
       );
     }
+    if (response.status === 429) {
+      throw new UserError(`${host} is rate-limiting Dave (HTTP 429) — ask again in a minute.`);
+    }
     throw new UserError(
-      `Hugging Face couldn't answer (HTTP ${response.status})${detail ? `: ${detail}` : ""}`,
+      `${host} couldn't answer (HTTP ${response.status})${detail ? `: ${detail}` : ""}`,
     );
   }
 
   const payload = await response.json().catch(() => null);
   const text = payload?.choices?.[0]?.message?.content ?? payload?.choices?.[0]?.text ?? null;
   if (typeof text !== "string" || !text.trim()) {
-    throw new UserError("Hugging Face returned an empty answer — try asking again.");
+    throw new UserError(`${host} returned an empty answer — try asking again.`);
   }
 
   return text.trim().slice(0, MAX_REPLY);
@@ -259,6 +288,7 @@ async function reply(message, text) {
 export function createDaveAgent({
   apiKey = null,
   model = DEFAULT_MODEL,
+  endpoint = DEFAULT_ENDPOINT,
   users = null,
   keys = null,
   sourceId = null,
@@ -330,6 +360,7 @@ export function createDaveAgent({
         const text = await askDave({
           apiKey,
           model,
+          endpoint,
           question: parsed.question,
           records: selectRecords(records, parsed.question),
           total: records.length,
