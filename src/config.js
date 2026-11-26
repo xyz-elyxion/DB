@@ -73,6 +73,14 @@ export const config = {
   countingFile: process.env.COUNTING_FILE?.trim() || "data/counting.json",
   usersFile: process.env.USERS_FILE?.trim() || "data/users.json",
   usersForumId: readChannelId(process.env.USERS_FORUM_CHANNEL_ID, DEFAULT_USER_FORUM_ID),
+  // Dave, the student-database assistant. Every answer he gives is written by a
+  // Hugging Face model; without a key he says he isn't connected instead of
+  // inventing an answer from the local records.
+  huggingFaceApiKey: process.env.HUGGINGFACE_API_KEY?.trim() || null,
+  huggingFaceModel:
+    process.env.HUGGINGFACE_MODEL?.trim() || "meta-llama/Llama-3.1-8B-Instruct",
+  // One-time keys for people outside the two servers (/dave-key).
+  daveKeysFile: process.env.DAVE_KEYS_FILE?.trim() || "data/dave-keys.json",
   // A forum post is a channel, so Discord rate-limits creations hard: pace them
   // instead of bursting into a multi-minute 429.
   forumPostDelayMs: readNumber(process.env.FORUM_POST_DELAY_MS, 2500, { max: 60_000 }),

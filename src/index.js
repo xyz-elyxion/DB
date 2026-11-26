@@ -1,9 +1,12 @@
-import { Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
+import { Client, Events, GatewayIntentBits, MessageFlags, Partials } from "discord.js";
 import { assertConfig, config } from "./config.js";
 import { applyPlan } from "./lib/builder.js";
 import { createCaseStore } from "./lib/cases.js";
 import { COUNTING_COMMANDS, runCountingCommand } from "./lib/countingcommands.js";
 import { createCountingStore } from "./lib/counting.js";
+import { createDaveAgent } from "./lib/dave.js";
+import { DAVE_COMMANDS, runDaveCommand } from "./lib/davecommands.js";
+import { createDaveKeyStore } from "./lib/davekeys.js";
 import { UserError } from "./lib/errors.js";
 import { createInviteGuard } from "./lib/invites.js";
 import { createJoinBlockStore } from "./lib/joinblocks.js";
@@ -40,7 +43,12 @@ console.log(
     `(ENABLE_MESSAGE_CONTENT=${JSON.stringify(config.messageContentEnv)}).`,
 );
 
-const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
+const intents = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMessages,
+  // Dave also answers direct messages, where a one-time key is required.
+  GatewayIntentBits.DirectMessages,
+];
 if (config.enableMessageContent) {
   intents.push(GatewayIntentBits.MessageContent);
 }
@@ -48,7 +56,11 @@ if (config.enableMemberEvents) {
   intents.push(GatewayIntentBits.GuildMembers);
 }
 
-const client = new Client({ intents });
+const client = new Client({ intents, partials: [Partials.Channel] });
+
+// Slash commands are registered in these two servers and nowhere else, and an
+// interaction from any other guild (or a DM) is refused.
+const commandGuildIds = new Set([config.sourceId, config.targetId].filter(Boolean));
 const live = createLiveSync({
   sourceId: config.sourceId,
   targetId: config.targetId,
@@ -81,6 +93,19 @@ const counting = createCountingStore({ file: config.countingFile, guildId: confi
 // Member records: names, emails, birthdays and the roles section, on disk.
 const users = createUserStore({ file: config.usersFile });
 
+// One-time keys let someone outside the servers ask Dave (/dave-key makes them).
+const daveKeys = createDaveKeyStore({ file: config.daveKeysFile });
+
+// Dave answers questions about the student database through Hugging Face.
+const dave = createDaveAgent({
+  apiKey: config.huggingFaceApiKey,
+  model: config.huggingFaceModel,
+  users,
+  keys: daveKeys,
+  sourceId: config.sourceId,
+  guildIds: [config.sourceId, config.targetId],
+});
+
 // Every record also gets a post in the user forum, which follows the record.
 const userForum = createUserForum({
   channelId: config.usersForumId,
@@ -91,6 +116,12 @@ const userForum = createUserForum({
 console.log(
   `User records: ${users.count(config.sourceId)} loaded from ${config.usersFile} ` +
     `(forum ${config.usersForumId ?? "off"}, ${config.forumPostDelayMs} ms between new posts).`,
+);
+
+console.log(
+  dave.enabled
+    ? `Dave: on (${config.huggingFaceModel}), ${daveKeys.count()} unused one-time key(s).`
+    : "Dave: off — set HUGGINGFACE_API_KEY to let people ask about the student database.",
 );
 
 // The preview guild, once the bot has connected.
@@ -122,37 +153,53 @@ if (config.enableMemberEvents) {
   );
 }
 
-// Moderation belongs to the real server; the preview is read-only anyway.
+// Commands are registered in the main server and the preview, and nowhere else.
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.guildId !== config.sourceId) {
+  if (!interaction.guildId || !commandGuildIds.has(interaction.guildId)) {
     await interaction
       .reply({
-        content: "Moderation commands only work in the main server.",
+        content: "My commands only work in the main server and its preview server.",
         flags: MessageFlags.Ephemeral,
       })
       .catch(() => {});
     return;
   }
 
+  // The database and levelling belong to the main server, so a command run from
+  // the preview reads and writes the main server's data, not a second empty copy.
+  const dataGuild =
+    interaction.guildId === config.sourceId
+      ? interaction.guild
+      : (previewGuild ?? interaction.guild);
+
   const handledByLevels = await runLevelCommand(interaction, {
     levels,
     cases,
-    logCase: (record) => postCase(interaction.guild, config.modLogChannelId, record),
+    guild: dataGuild,
+    logCase: (record) => postCase(dataGuild, config.modLogChannelId, record),
     syncRewards: syncLevelRoles,
   });
   if (handledByLevels) return;
 
-  const handledByCounting = await runCountingCommand(interaction, { counting });
+  const handledByCounting = await runCountingCommand(interaction, { counting, guild: dataGuild });
   if (handledByCounting) return;
 
-  const handledByUsers = await runUserCommand(interaction, { users, forum: userForum });
+  const handledByUsers = await runUserCommand(interaction, {
+    users,
+    forum: userForum,
+    guild: dataGuild,
+  });
   if (handledByUsers) return;
+
+  const handledByDave = await runDaveCommand(interaction, { keys: daveKeys });
+  if (handledByDave) return;
 
   await runModerationCommand(interaction, {
     cases,
-    logChannelId: config.modLogChannelId,
+    // Cases ran in the preview are logged in the preview's own #mod-logs.
+    logChannelId: interaction.guildId === config.sourceId ? config.modLogChannelId : null,
     previewGuild,
     invites: inviteGuard,
     joinBlocks,
@@ -251,6 +298,17 @@ client.on(Events.MessageCreate, async (message) => {
 // can't be edited by events that arrive while it is still working.
 let liveReady = false;
 let joinServer = null;
+
+// Dave is started by a message beginning with the word "Dave". Members of the
+// two servers can ask straight away; everyone else needs a one-time key.
+client.on(Events.MessageCreate, async (message) => {
+  if (!liveReady) return;
+  try {
+    await dave.handleMessage(message);
+  } catch (error) {
+    console.error("Dave failed:", error.message);
+  }
+});
 
 function on(event, label, run) {
   client.on(event, (...args) => {
@@ -375,12 +433,21 @@ client.once(Events.ClientReady, async (readyClient) => {
   previewGuild = target;
   await inviteGuard.prime(target);
 
-  const commands = [...MOD_COMMANDS, ...LEVEL_COMMANDS, ...COUNTING_COMMANDS, ...USER_COMMANDS];
-  try {
-    await source.commands.set(commands.map((command) => command.toJSON()));
-    console.log(`Registered ${commands.length} command(s) in ${source.name}.`);
-  } catch (error) {
-    console.error("Could not register the commands:", error.message);
+  const commands = [
+    ...MOD_COMMANDS,
+    ...LEVEL_COMMANDS,
+    ...COUNTING_COMMANDS,
+    ...USER_COMMANDS,
+    ...DAVE_COMMANDS,
+  ];
+  const payload = commands.map((command) => command.toJSON());
+  for (const guild of [source, target]) {
+    try {
+      await guild.commands.set(payload);
+      console.log(`Registered ${commands.length} command(s) in ${guild.name}.`);
+    } catch (error) {
+      console.error(`Could not register the commands in ${guild.name}:`, error.message);
+    }
   }
 
   await live.attach(source, target);

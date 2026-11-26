@@ -354,6 +354,44 @@ member | first name | last name | email | username | date of birth | class | gen
 - Up to 100 records per run; run it again for the next batch. The reply is
   private, and long lists of skipped lines are shortened to fit Discord's limit.
 
+## Dave, the database assistant
+
+Start a message with **Dave** and the bot answers from the student database —
+who someone is, which class they are in, their email, their roles. Every word of
+the answer is written by a Hugging Face model: the bot only sends it the records
+that match the question, so Dave answers from the database instead of inventing
+a student.
+
+```
+Dave what class is Jackson Zhu in?
+```
+
+- Set `HUGGINGFACE_API_KEY` to a token with Inference Providers access from
+  [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens), and
+  `HUGGINGFACE_MODEL` if you want a different model (default
+  `meta-llama/Llama-3.1-8B-Instruct`). Without a key Dave says he isn't
+  connected — he never falls back to a local guess.
+- Anyone in the main server or the preview server can ask straight away.
+- Everyone else — another server the bot is in, or a direct message — needs a
+  **one-time key**. A manager in either of the two servers runs `/dave-key`,
+  picks the person, and gets the key privately; it works only for them and is
+  spent by its first answer:
+
+```
+Dave K7QM-3H2P who is in 10A?
+```
+
+- Keys are kept in `DAVE_KEYS_FILE` (`data/dave-keys.json`). A failed answer does
+  not spend the key; only a delivered one does.
+
+### Where the commands work
+
+Every slash command is registered in the main server and in the preview server
+and nowhere else: in any other server, or in a direct message, the bot replies
+that its commands only work there. Records, XP and the counting chain belong to
+the main server, so a command run from the preview changes the same database and
+levels; moderation acts on the server it was run in.
+
 ## What is mirrored
 
 When it starts:
