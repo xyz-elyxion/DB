@@ -1,8 +1,4 @@
-import {
-  MessageFlags,
-  PermissionFlagsBits,
-  SlashCommandBuilder,
-} from "discord.js";
+import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 import { reputationCard, reputationLeaderboardCard } from "./embeds.js";
 import { UserError, describeError } from "./errors.js";
 
@@ -42,7 +38,7 @@ export const REP_COMMANDS = [
 
   new SlashCommandBuilder()
     .setName("rep-reset")
-    .setDescription("Wipe a member's reputation.")
+    .setDescription("Wipe the reputation on a member's record.")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addUserOption((option) =>
       option.setName("member").setDescription("Whose reputation to wipe").setRequired(true),
@@ -52,12 +48,25 @@ export const REP_COMMANDS = [
     ),
 ];
 
+/** Reputation lives on the record, so the member has to have one. */
+function recordFor(users, guildId, userId) {
+  const record = users.get(guildId, userId);
+  if (!record) {
+    throw new UserError(
+      `<@${userId}> isn't in the database yet — staff can add their record with \`/create-user\`.`,
+    );
+  }
+  return record;
+}
+
 const HANDLERS = {
-  async rep({ guild, options, moderator, reputation }) {
+  async rep({ guild, options, moderator, users }) {
     const user = options.getUser("member", true);
-    const result = reputation.give({
+    const record = recordFor(users, guild.id, user.id);
+
+    const result = users.addReputation({
       guildId: guild.id,
-      userId: user.id,
+      recordId: record.id,
       fromId: moderator.id,
       amount: 1,
       note: options.getString("note"),
@@ -66,32 +75,33 @@ const HANDLERS = {
     return {
       message:
         `⭐ Gave **+1** reputation to <@${user.id}> — they now have ` +
-        `**${result.entry.score}**.` +
-        (result.entry.entries[0]?.note ? `\nReason: ${result.entry.entries[0].note}` : ""),
+        `**${result.record.reputation.score}**.` +
+        (result.record.reputation.entries[0]?.note
+          ? `\nReason: ${result.record.reputation.entries[0].note}`
+          : ""),
     };
   },
 
-  async "rep-info"({ interaction, guild, options, reputation }) {
+  async "rep-info"({ interaction, guild, options, users }) {
     const user = options.getUser("member") ?? interaction.user ?? { id: interaction.member?.id };
-    const entry = reputation.get(guild.id, user.id);
-    const board = reputation.top(guild.id, { limit: Number.MAX_SAFE_INTEGER });
-    const rank = board.entries.find((row) => row.userId === user.id)?.rank ?? null;
+    const record = recordFor(users, guild.id, user.id);
+    const board = users.topReputation(guild.id, { limit: Number.MAX_SAFE_INTEGER });
 
     return {
       embeds: [
         reputationCard({
           userId: user.id,
-          score: entry.score,
-          rank,
+          score: record.reputation.score,
+          rank: board.entries.find((entry) => entry.recordId === record.id)?.rank ?? null,
           total: board.total,
-          entries: entry.entries,
+          entries: record.reputation.entries,
         }),
       ],
     };
   },
 
-  async "rep-leaderboard"({ guild, options, reputation }) {
-    const board = reputation.top(guild.id, { page: options.getInteger("page") ?? 1 });
+  async "rep-leaderboard"({ guild, options, users }) {
+    const board = users.topReputation(guild.id, { page: options.getInteger("page") ?? 1 });
     if (board.total === 0) {
       return { message: "Nobody has reputation yet — give the first point with `/rep`." };
     }
@@ -108,20 +118,23 @@ const HANDLERS = {
     };
   },
 
-  async "rep-reset"({ guild, options, moderator, reputation }) {
+  async "rep-reset"({ guild, options, moderator, users }) {
     const user = options.getUser("member", true);
-    const confirm = options.getBoolean("confirm") === true;
+    const record = recordFor(users, guild.id, user.id);
 
-    if (!confirm) {
-      const entry = reputation.get(guild.id, user.id);
+    if (options.getBoolean("confirm") !== true) {
       return {
         message:
-          `<@${user.id}> has **${entry.score}** reputation point(s). ` +
+          `<@${user.id}> has **${record.reputation.score}** reputation point(s). ` +
           "Run it again with `confirm: true` to wipe them.",
       };
     }
 
-    const before = reputation.reset(guild.id, user.id, { by: moderator?.id ?? null });
+    const before = users.resetReputation({
+      guildId: guild.id,
+      recordId: record.id,
+      by: moderator?.id ?? null,
+    });
     if (before === null) {
       return { message: `<@${user.id}> had no reputation to wipe.` };
     }
@@ -150,7 +163,7 @@ export async function runRepCommand(interaction, context = {}) {
 
   try {
     if (!guild) throw new UserError("Reputation commands only work inside a server.");
-    if (!context.reputation) throw new UserError("The reputation system isn't running.");
+    if (!context.users) throw new UserError("The user database isn't running.");
 
     const guard = GUARDS[name];
     if (guard) requirePermission(interaction.member, guard);

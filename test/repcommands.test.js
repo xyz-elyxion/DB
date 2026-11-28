@@ -1,7 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { REP_COMMANDS, runRepCommand } from "../src/lib/repcommands.js";
-import { createReputationStore } from "../src/lib/reputation.js";
+import { createUserStore } from "../src/lib/users.js";
+
+const FIELDS = {
+  firstName: "Ada",
+  lastName: "Lovelace",
+  email: "ada@example.com",
+  username: "ada.l",
+  dateOfBirth: "1990-12-10",
+  class: "10A",
+  gender: "Female",
+  roles: "Student",
+};
 
 function guild() {
   return { id: "g1", name: "Main" };
@@ -34,8 +45,11 @@ function interactionFor({
   };
 }
 
-function reputation() {
-  return createReputationStore({ guildId: "g1", now: () => 1_000_000 });
+/** A database with a record for the member "u2". */
+function database(extra = {}) {
+  const users = createUserStore({ guildId: "g1" });
+  users.create({ guildId: "g1", userId: "u2", ...FIELDS, ...extra });
+  return users;
 }
 
 test("there is a command to give, read, rank and reset reputation", () => {
@@ -56,43 +70,62 @@ test("every command has a valid payload Discord accepts", () => {
   }
 });
 
-test("/rep gives a point and is private by default", async () => {
-  const store = reputation();
+test("/rep gives a point on the record and is private by default", async () => {
+  const users = database();
   const interaction = interactionFor({
     commandName: "rep",
     options: { member: { id: "u2" }, note: "helped with homework" },
   });
 
-  assert.equal(await runRepCommand(interaction, { reputation: store }), true);
+  assert.equal(await runRepCommand(interaction, { users }), true);
 
-  assert.equal(store.score("g1", "u2"), 1);
+  const stored = users.get("g1", "u2");
+  assert.equal(stored.reputation.score, 1);
+  assert.equal(stored.reputation.entries[0].note, "helped with homework");
   assert.match(interaction.replies[0].content, /\+1/);
-  assert.match(interaction.replies[0].content, /helped with homework/);
+  assert.match(interaction.replies[0].content, /\*\*1\*\*/);
   assert.equal(interaction.replies[0].flags, 64, "private by default");
 });
 
-test("/rep refuses a member who tries to rep themselves", async () => {
-  const store = reputation();
+test("/rep asks for a record before giving reputation", async () => {
+  const users = database();
   const interaction = interactionFor({
     commandName: "rep",
-    options: { member: { id: "mod" } },
+    options: { member: { id: "u9" } },
   });
 
-  await runRepCommand(interaction, { reputation: store });
+  await runRepCommand(interaction, { users });
+  assert.match(interaction.replies[0].content, /isn't in the database yet/);
+  assert.match(interaction.replies[0].content, /\/create-user/);
+});
+
+test("/rep refuses a member who tries to rep their own record", async () => {
+  const users = database();
+  users.create({
+    guildId: "g1",
+    userId: "mod",
+    ...FIELDS,
+    username: "mod",
+    email: "mod@example.com",
+  });
+
+  const interaction = interactionFor({ commandName: "rep", options: { member: { id: "mod" } } });
+  await runRepCommand(interaction, { users });
+
   assert.match(interaction.replies[0].content, /can't give reputation to yourself/);
-  assert.equal(store.score("g1", "mod"), 0);
+  assert.equal(users.get("g1", "mod").reputation.score, 0);
 });
 
 test("/rep-info shows the score, rank and recent reasons", async () => {
-  const store = reputation();
-  store.give({ guildId: "g1", userId: "u2", fromId: "u1", note: "great" });
-  store.give({ guildId: "g1", userId: "u2", fromId: "u3", note: "helpful" });
+  const users = database();
+  users.addReputation({ guildId: "g1", recordId: "u2", fromId: "u1", note: "great" });
+  users.addReputation({ guildId: "g1", recordId: "u2", fromId: "u3", note: "helpful" });
 
   const interaction = interactionFor({
     commandName: "rep-info",
     options: { member: { id: "u2" } },
   });
-  await runRepCommand(interaction, { reputation: store });
+  await runRepCommand(interaction, { users });
 
   const embed = interaction.replies[0].embeds[0].toJSON();
   const fields = Object.fromEntries(embed.fields.map((field) => [field.name, field.value]));
@@ -103,14 +136,14 @@ test("/rep-info shows the score, rank and recent reasons", async () => {
 });
 
 test("/rep-leaderboard handles an empty board and a full one", async () => {
-  const store = reputation();
+  const users = database();
   const empty = interactionFor({ commandName: "rep-leaderboard", options: {} });
-  await runRepCommand(empty, { reputation: store });
+  await runRepCommand(empty, { users });
   assert.match(empty.replies[0].content, /Nobody has reputation yet/);
 
-  store.give({ guildId: "g1", userId: "u2", fromId: "u1", amount: 3 });
+  users.addReputation({ guildId: "g1", recordId: "u2", fromId: "u1", amount: 3 });
   const filled = interactionFor({ commandName: "rep-leaderboard", options: { page: 1 } });
-  await runRepCommand(filled, { reputation: store });
+  await runRepCommand(filled, { users });
 
   const embed = filled.replies[0].embeds[0].toJSON();
   assert.match(embed.title, /page 1\/1/);
@@ -119,37 +152,37 @@ test("/rep-leaderboard handles an empty board and a full one", async () => {
 });
 
 test("/rep-reset needs Manage Server and a confirmation", async () => {
-  const store = reputation();
-  store.give({ guildId: "g1", userId: "u2", fromId: "u1", amount: 2 });
+  const users = database();
+  users.addReputation({ guildId: "g1", recordId: "u2", fromId: "u1", amount: 2 });
 
   const denied = interactionFor({
     commandName: "rep-reset",
     can: false,
     options: { member: { id: "u2" }, confirm: true },
   });
-  await runRepCommand(denied, { reputation: store });
+  await runRepCommand(denied, { users });
   assert.match(denied.replies[0].content, /Manage Server/);
-  assert.equal(store.score("g1", "u2"), 2);
+  assert.equal(users.get("g1", "u2").reputation.score, 2);
 
   const unconfirmed = interactionFor({
     commandName: "rep-reset",
     options: { member: { id: "u2" }, confirm: false },
   });
-  await runRepCommand(unconfirmed, { reputation: store });
+  await runRepCommand(unconfirmed, { users });
   assert.match(unconfirmed.replies[0].content, /confirm: true/);
-  assert.equal(store.score("g1", "u2"), 2);
+  assert.equal(users.get("g1", "u2").reputation.score, 2);
 
   const confirmed = interactionFor({
     commandName: "rep-reset",
     options: { member: { id: "u2" }, confirm: true },
   });
-  await runRepCommand(confirmed, { reputation: store });
+  await runRepCommand(confirmed, { users });
   assert.match(confirmed.replies[0].content, /Cleared \*\*2\*\*/);
-  assert.equal(store.score("g1", "u2"), 0);
+  assert.equal(users.get("g1", "u2").reputation.score, 0);
 });
 
 test("commands that are not reputation commands are left for the other handlers", async () => {
   const interaction = interactionFor({ commandName: "rank" });
-  assert.equal(await runRepCommand(interaction, { reputation: reputation() }), false);
+  assert.equal(await runRepCommand(interaction, { users: database() }), false);
   assert.equal(interaction.replies.length, 0);
 });

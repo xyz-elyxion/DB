@@ -130,15 +130,13 @@ test("forum post titles carry the name and are shortened to fit", () => {
 });
 
 test("the record card shows every field, the roles section and reputation", () => {
-  const embed = userRecordEmbed(
-    {
-      userId: "u1",
-      ...FIELDS,
-      roles: ["Student", "Prefect"],
-      updatedAt: "2026-01-02T00:00:00Z",
-    },
-    { reputation: { score: 4 } },
-  ).toJSON();
+  const embed = userRecordEmbed({
+    userId: "u1",
+    ...FIELDS,
+    roles: ["Student", "Prefect"],
+    reputation: { score: 4 },
+    updatedAt: "2026-01-02T00:00:00Z",
+  }).toJSON();
   const fields = Object.fromEntries(embed.fields.map((field) => [field.name, field.value]));
 
   assert.equal(embed.title, "👤 Ada Lovelace");

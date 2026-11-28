@@ -24,7 +24,6 @@ import { MOD_COMMANDS, postCase, runModerationCommand } from "./lib/moderation.j
 import { planReplication } from "./lib/planner.js";
 import { previewName } from "./lib/preview.js";
 import { REP_COMMANDS, runRepCommand } from "./lib/repcommands.js";
-import { createReputationStore } from "./lib/reputation.js";
 import { snapshotGuild } from "./lib/snapshot.js";
 import { USER_COMMANDS, runUserCommand } from "./lib/usercommands.js";
 import { createUserForum, syncExistingUserPosts } from "./lib/userposts.js";
@@ -93,11 +92,9 @@ const levels = createLevelStore({
 // The counting channel, saved so a restart doesn't lose the chain.
 const counting = createCountingStore({ file: config.countingFile, guildId: config.sourceId });
 
-// Member records: names, emails, birthdays and the roles section, on disk.
+// Member records: names, emails, birthdays, the roles section and reputation,
+// all on disk in the same file.
 const users = createUserStore({ file: config.usersFile });
-
-// Reputation for those members, given with /rep and shown on their record.
-const reputation = createReputationStore({ file: config.reputationFile });
 
 // One-time keys let someone outside the servers ask Dave (/dave-key makes them).
 const daveKeys = createDaveKeyStore({ file: config.daveKeysFile });
@@ -108,7 +105,6 @@ const dave = createDaveAgent({
   model: config.daveModel,
   endpoint: config.daveApiUrl,
   users,
-  reputation,
   keys: daveKeys,
   sourceId: config.sourceId,
   guildIds: [config.sourceId, config.targetId],
@@ -118,18 +114,12 @@ const dave = createDaveAgent({
 const userForum = createUserForum({
   channelId: config.usersForumId,
   delayMs: config.forumPostDelayMs,
-  reputation,
 });
 
 // Says where records live, so a wrong or unwritable path is obvious at a glance.
 console.log(
   `User records: ${users.count(config.sourceId)} loaded from ${config.usersFile} ` +
     `(forum ${config.usersForumId ?? "off"}, ${config.forumPostDelayMs} ms between new posts).`,
-);
-
-console.log(
-  `Reputation: ${reputation.count(config.sourceId)} member(s) loaded from ` +
-    `${config.reputationFile}.`,
 );
 
 console.log(
@@ -206,13 +196,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
   const handledByUsers = await runUserCommand(interaction, {
     users,
     forum: userForum,
-    reputation,
     guild: dataGuild,
   });
   if (handledByUsers) return;
 
-  // Reputation belongs to the main server's database, like the records.
-  const handledByRep = await runRepCommand(interaction, { reputation, guild: dataGuild });
+  // Reputation lives on the records, so it belongs to the main server too.
+  const handledByRep = await runRepCommand(interaction, { users, guild: dataGuild });
   if (handledByRep) return;
 
   const handledByEmbeds = await runEmbedCommand(interaction, {

@@ -66,11 +66,12 @@ const inline = (name, value) => ({ name, value: value || "—", inline: true });
 const block = (name, value) => ({ name, value: value || "—", inline: false });
 
 /** A member's database record, shown by /user-info and in their forum post. */
-export function userRecordCard(record, { authorName = null, reputation = null } = {}) {
+export function userRecordCard(record, { authorName = null } = {}) {
   const birthday = record.dateOfBirth || null;
   const age = birthday ? ageFromDateOfBirth(birthday) : null;
   const roles = Array.isArray(record.roles) ? record.roles : [];
-  const score = Number(reputation?.score ?? record.reputation ?? 0);
+  // Reputation is stored on the record, next to the rest of it.
+  const score = Number(record.reputation?.score ?? record.reputation ?? 0);
 
   const name = `${record.firstName ?? ""} ${record.lastName ?? ""}`.trim() || "Unnamed record";
 
@@ -203,7 +204,9 @@ export function reputationLeaderboardCard({ entries, page, pages, total }) {
   const medals = ["🥇", "🥈", "🥉"];
   const lines = entries.map(
     (entry, index) =>
-      `${medals[index] ?? `**${entry.rank}.**`} <@${entry.userId}> — **${entry.score}** ⭐`,
+      `${medals[index] ?? `**${entry.rank}.**`} ` +
+      `${entry.userId ? `<@${entry.userId}>` : `**${entry.name ?? "unassigned record"}**`} — ` +
+      `**${entry.score}** ⭐`,
   );
 
   return styledEmbed({

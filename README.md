@@ -37,7 +37,6 @@ commands, which the bot registers in the main server when it starts.
    XP_MAX_PER_MESSAGE=25
    XP_COOLDOWN_SECONDS=60
    COUNTING_FILE=data/counting.json     # optional: counting channel state
-   REPUTATION_FILE=data/reputation.json # optional: /rep reputation
    ```
 
 4. **Run it**:
@@ -357,12 +356,15 @@ member | first name | last name | email | username | date of birth | class | gen
 
 ### Reputation
 
-Members can be given reputation points, stored next to the records in
-`REPUTATION_FILE` (`data/reputation.json`) and shown on their record card as a
-*Reputation* field. Nobody can give themselves a point, and each member can give
-one point to the same person once a day; a note says why and is kept in their
-history. Dave knows the scores too, so `Dave how much reputation does Ada have?`
-answers from the database.
+Every record carries its own reputation: points, plus the reasons and who gave
+them, saved in the record itself in `USERS_FILE` (`data/users.json`) and shown on
+the record card as a *Reputation* field. Nobody can give themselves a point, and
+each member can give one point to the same record once a day; a note says why and
+is kept in that record's history. Dave reads it like any other field, so
+`Dave how much reputation does Ada have?` answers from the database.
+
+Because points belong to the record, a member needs one before they can be given
+reputation — `/rep` says so and points at `/create-user`.
 
 | Command | What it does | Needs |
 | --- | --- | --- |

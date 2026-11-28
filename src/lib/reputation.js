@@ -1,5 +1,3 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import { UserError } from "./errors.js";
 
 export const DEFAULT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -8,6 +6,32 @@ export const MAX_AMOUNT = 25;
 export const MAX_ENTRIES = 20;
 
 const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
+
+/** The reputation a record starts with. */
+export function emptyReputation() {
+  return { score: 0, entries: [], givers: {} };
+}
+
+/**
+ * The reputation stored on a record, in a shape the rest of the code can rely
+ * on. Records saved before reputation existed simply read as zero.
+ */
+export function readReputation(record) {
+  const saved = record?.reputation;
+  const source = typeof saved === "number" ? { score: saved } : saved ?? {};
+
+  const score = Number(source.score);
+  const entries = Array.isArray(source.entries)
+    ? source.entries.filter((entry) => entry && typeof entry === "object")
+    : [];
+  const givers = source.givers && typeof source.givers === "object" ? { ...source.givers } : {};
+
+  return {
+    score: Number.isFinite(score) ? score : 0,
+    entries: entries.slice(0, MAX_ENTRIES),
+    givers,
+  };
+}
 
 /** A note is optional; when given it is kept short and on one line. */
 export function normalizeRepNote(value) {
@@ -45,155 +69,90 @@ function timeLeft(ms) {
   return `${minutes}m`;
 }
 
-function emptyEntry(userId) {
-  return { userId, score: 0, entries: [], givers: {}, updatedAt: null };
+/**
+ * Apply a reputation change to a record. Pure: the caller stores the returned
+ * reputation on the record and saves the database.
+ *
+ * A member can hand out one point per record per cooldown (a day by default);
+ * a negative amount is how a manager takes points away.
+ */
+export function giveReputation(
+  record,
+  { fromId, amount = 1, note = null, now = Date.now(), cooldownMs = DEFAULT_COOLDOWN_MS } = {},
+) {
+  if (!record) throw new UserError("That member doesn't have a record in the database.");
+  if (!fromId) throw new UserError("Say who is giving the reputation.");
+  if (record.userId && String(record.userId) === String(fromId)) {
+    throw new UserError("You can't give reputation to yourself.");
+  }
+
+  const points = parseRepAmount(amount);
+  const reason = normalizeRepNote(note);
+  const current = readReputation(record);
+
+  if (points > 0) {
+    const last = current.givers[fromId] ?? null;
+    if (last !== null) {
+      const wait = last + cooldownMs - now;
+      if (wait > 0) {
+        throw new UserError(
+          `You already gave reputation to <@${record.userId ?? record.id}> — ` +
+            `try again in ${timeLeft(wait)}.`,
+        );
+      }
+    }
+  }
+
+  const reputation = {
+    score: current.score + points,
+    entries: [
+      {
+        fromId: String(fromId),
+        amount: points,
+        note: reason,
+        at: new Date(now).toISOString(),
+      },
+      ...current.entries,
+    ].slice(0, MAX_ENTRIES),
+    givers: { ...current.givers },
+  };
+  if (points > 0) reputation.givers[fromId] = now;
+
+  return { reputation, before: current.score, changed: points };
 }
 
-/**
- * Reputation for the student database: JSON-backed, one bucket per server, keyed
- * by the Discord member so it follows them when a record is created or edited.
- *
- * A member can hand out one point per target per cooldown (a day by default).
- * Managers can move more at once with a negative amount, and reset a member.
- */
-export function createReputationStore({
-  file = null,
-  guildId = null,
-  cooldownMs = DEFAULT_COOLDOWN_MS,
-  now = () => Date.now(),
-} = {}) {
-  let guilds = {};
+/** The members with the most reputation, highest first, with their rank. */
+export function reputationBoard(records = [], { limit = 10, page = 1 } = {}) {
+  const ranked = records
+    .map((record) => ({ record, score: readReputation(record).score }))
+    .filter((row) => row.score !== 0)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        String(a.record.updatedAt ?? "").localeCompare(String(b.record.updatedAt ?? "")),
+    )
+    .map((row, index) => ({
+      recordId: row.record.id,
+      userId: row.record.userId ?? null,
+      name: `${row.record.firstName ?? ""} ${row.record.lastName ?? ""}`.trim(),
+      score: row.score,
+      rank: index + 1,
+    }));
 
-  if (file && existsSync(file)) {
-    try {
-      const parsed = JSON.parse(readFileSync(file, "utf8"));
-      guilds = parsed && typeof parsed.guilds === "object" && parsed.guilds ? parsed.guilds : {};
-    } catch (error) {
-      console.warn(`Could not read ${file}, starting with no reputation: ${error.message}`);
-    }
-  }
-
-  function save() {
-    if (!file) return;
-    try {
-      mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(file, `${JSON.stringify({ guilds }, null, 2)}\n`);
-    } catch (error) {
-      console.error(`Could not save reputation to ${file}: ${error.message}`);
-    }
-  }
-
-  function bucket(gid = guildId) {
-    const guild = (guilds[gid] ??= {});
-    guild.members ??= {};
-    return guild;
-  }
-
-  // Reads never create a server bucket, so looking something up can't end up
-  // saved as an empty "null" guild when SOURCE_GUILD_ID isn't set yet.
-  function entries(gid) {
-    return Object.values(guilds[gid]?.members ?? {});
-  }
+  const perPage = Math.max(1, limit);
+  const pages = Math.max(1, Math.ceil(ranked.length / perPage));
+  const current = Math.min(Math.max(1, page), pages);
 
   return {
-    /** A member's reputation, or a zeroed one when they have none yet. */
-    get(gid = guildId, userId) {
-      const entry = guilds[gid]?.members?.[userId];
-      return entry ? { ...entry } : emptyEntry(userId ?? null);
-    },
-
-    score(gid = guildId, userId) {
-      return guilds[gid]?.members?.[userId]?.score ?? 0;
-    },
-
-    /** How many members have reputation at all in this server. */
-    count(gid = guildId) {
-      return entries(gid).filter((entry) => entry.score !== 0).length;
-    },
-
-    /** Position among members with a non-zero score, or null for none. */
-    rank(gid = guildId, userId) {
-      const board = this.top(gid, { limit: Number.MAX_SAFE_INTEGER });
-      return board.entries.find((entry) => entry.userId === userId)?.rank ?? null;
-    },
-
-    give({ guildId: gid = guildId, userId, fromId, amount = 1, note = null } = {}) {
-      if (!gid) throw new UserError("A server is required to store reputation.");
-      if (!userId) throw new UserError("Say who the reputation is for.");
-      if (!fromId) throw new UserError("Say who is giving the reputation.");
-      if (String(userId) === String(fromId)) {
-        throw new UserError("You can't give reputation to yourself.");
-      }
-
-      const points = parseRepAmount(amount);
-      const reason = normalizeRepNote(note);
-
-      const guild = bucket(gid);
-      const entry = (guild.members[userId] ??= emptyEntry(String(userId)));
-
-      if (points > 0) {
-        const last = entry.givers?.[fromId] ?? null;
-        if (last !== null) {
-          const wait = last + cooldownMs - now();
-          if (wait > 0) {
-            throw new UserError(
-              `You already gave reputation to <@${userId}> — try again in ${timeLeft(wait)}.`,
-            );
-          }
-        }
-      }
-
-      const before = entry.score;
-      entry.score += points;
-      entry.entries = [
-        { fromId: String(fromId), amount: points, note: reason, at: new Date(now()).toISOString() },
-        ...(entry.entries ?? []),
-      ].slice(0, MAX_ENTRIES);
-      entry.givers ??= {};
-      if (points > 0) entry.givers[fromId] = now();
-      entry.updatedAt = new Date(now()).toISOString();
-
-      save();
-      return { entry: { ...entry }, before, changed: points };
-    },
-
-    /** Wipe a member's reputation. Returns the score that was cleared. */
-    reset(gid = guildId, userId, { by = null } = {}) {
-      const guild = bucket(gid);
-      const entry = guild.members[userId];
-      if (!entry) return null;
-
-      const before = entry.score;
-      guild.members[userId] = {
-        ...emptyEntry(String(userId)),
-        updatedAt: new Date(now()).toISOString(),
-        resetBy: by ?? null,
-      };
-      save();
-      return before;
-    },
-
-    /** The members with the most reputation, highest first. */
-    top(gid = guildId, { limit = 10, page = 1 } = {}) {
-      const ranked = entries(gid)
-        .filter((entry) => entry.score !== 0)
-        .sort(
-          (a, b) =>
-            b.score - a.score ||
-            String(a.updatedAt ?? "").localeCompare(String(b.updatedAt ?? "")),
-        )
-        .map((entry, index) => ({ userId: entry.userId, score: entry.score, rank: index + 1 }));
-
-      const perPage = Math.max(1, limit);
-      const pages = Math.max(1, Math.ceil(ranked.length / perPage));
-      const current = Math.min(Math.max(1, page), pages);
-
-      return {
-        entries: ranked.slice((current - 1) * perPage, current * perPage),
-        total: ranked.length,
-        page: current,
-        pages,
-      };
-    },
+    entries: ranked.slice((current - 1) * perPage, current * perPage),
+    total: ranked.length,
+    page: current,
+    pages,
   };
+}
+
+/** Where one record sits on that board, or null when it has no points. */
+export function reputationRank(records, recordId) {
+  const board = reputationBoard(records, { limit: Number.MAX_SAFE_INTEGER });
+  return board.entries.find((entry) => entry.recordId === recordId)?.rank ?? null;
 }

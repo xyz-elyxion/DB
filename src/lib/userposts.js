@@ -5,8 +5,8 @@ const MAX_THREAD_NAME = 100;
 const REASON = "User database";
 
 /** The record card, shared by /user-info and the forum post. */
-export function userRecordEmbed(record, { authorName = null, reputation = null } = {}) {
-  return userRecordCard(record, { authorName, reputation });
+export function userRecordEmbed(record, { authorName = null } = {}) {
+  return userRecordCard(record, { authorName });
 }
 
 /** Forum post titles stop at 100 characters, so long names are shortened. */
@@ -24,7 +24,7 @@ function deletedEmbed(record) {
  * editing the record renames it and rewrites the card; deleting the record turns
  * the card into a notice and archives the post, so nothing is lost.
  */
-export function createUserForum({ channelId = null, reason = REASON, delayMs = 0, reputation = null } = {}) {
+export function createUserForum({ channelId = null, reason = REASON, delayMs = 0 } = {}) {
   const warned = new Set();
   let lastCreateAt = 0;
 
@@ -54,17 +54,6 @@ export function createUserForum({ channelId = null, reason = REASON, delayMs = 0
     if (cached) return cached;
     if (typeof guild.channels?.fetch !== "function") return null;
     return (await guild.channels.fetch(threadId).catch(() => null)) ?? null;
-  }
-
-  /** The member's reputation, when they have a record and the store is wired up. */
-  function reputationFor(guild, record) {
-    if (!reputation || !record?.userId || !guild?.id) return null;
-    try {
-      return reputation.get(guild.id, record.userId);
-    } catch (error) {
-      console.error("Could not read reputation for a user forum post:", error.message);
-      return null;
-    }
   }
 
   async function starterMessage(thread) {
@@ -109,7 +98,7 @@ export function createUserForum({ channelId = null, reason = REASON, delayMs = 0
         const message = await starterMessage(existing);
         if (typeof message?.edit === "function") {
           await message
-            .edit({ embeds: [userRecordEmbed(record, { reputation: reputationFor(guild, record) })] })
+            .edit({ embeds: [userRecordEmbed(record)] })
             .catch((error) => console.error("Could not update a user forum post:", error.message));
         }
         return existing.id;
@@ -118,7 +107,7 @@ export function createUserForum({ channelId = null, reason = REASON, delayMs = 0
       await waitForTurn();
       const thread = await forum.threads.create({
         name: forumThreadName(record),
-        message: { embeds: [userRecordEmbed(record, { reputation: reputationFor(guild, record) })] },
+        message: { embeds: [userRecordEmbed(record)] },
         reason,
       });
       return thread?.id ?? null;

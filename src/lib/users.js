@@ -2,6 +2,13 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { UserError } from "./errors.js";
+import {
+  emptyReputation,
+  giveReputation,
+  readReputation,
+  reputationBoard,
+  reputationRank,
+} from "./reputation.js";
 
 export const MAX_ROLES = 10;
 export const MAX_ROLE_LENGTH = 32;
@@ -212,10 +219,14 @@ export function createUserStore({ file = null, guildId = null } = {}) {
     try {
       const parsed = JSON.parse(readFileSync(file, "utf8"));
       guilds = parsed && typeof parsed.guilds === "object" && parsed.guilds ? parsed.guilds : {};
-      // Records saved before ids existed are keyed by the member they belong to.
+      // Records saved before ids existed are keyed by the member they belong
+      // to, and records saved before reputation existed start at zero.
       for (const guild of Object.values(guilds)) {
         for (const [key, record] of Object.entries(guild?.users ?? {})) {
-          if (record && typeof record === "object") record.id ??= record.userId ?? key;
+          if (record && typeof record === "object") {
+            record.id ??= record.userId ?? key;
+            record.reputation = readReputation(record);
+          }
         }
       }
     } catch (error) {
@@ -311,6 +322,7 @@ export function createUserStore({ file = null, guildId = null } = {}) {
         id,
         userId: userId ? String(userId) : null,
         ...profile,
+        reputation: emptyReputation(),
         createdAt: now,
         updatedAt: now,
         createdBy,
@@ -365,6 +377,59 @@ export function createUserStore({ file = null, guildId = null } = {}) {
       guild.users[recordId] = record;
       save();
       return record;
+    },
+
+    /** A record's reputation, zeroed when it has none yet. */
+    reputation(gid = guildId, recordId) {
+      return readReputation(bucket(gid).users[recordId]);
+    },
+
+    /**
+     * Give (or take) reputation on a record. The points live in the database
+     * with the rest of the record, so they survive a restart and Dave can read
+     * them like any other field.
+     */
+    addReputation({ guildId: gid = guildId, recordId, fromId, amount = 1, note = null } = {}) {
+      const guild = bucket(gid);
+      const existing = guild.users[recordId];
+      if (!existing) {
+        throw new UserError("That record doesn't exist — use `/create-user` to add one.");
+      }
+
+      const result = giveReputation(existing, { fromId, amount, note });
+      const record = {
+        ...existing,
+        reputation: result.reputation,
+        updatedAt: new Date().toISOString(),
+      };
+      guild.users[recordId] = record;
+      save();
+      return { record, before: result.before, changed: result.changed };
+    },
+
+    /** Wipe a record's reputation. Returns the score that was cleared, or null. */
+    resetReputation({ guildId: gid = guildId, recordId, by = null } = {}) {
+      const guild = bucket(gid);
+      const existing = guild.users[recordId];
+      if (!existing) return null;
+
+      const before = readReputation(existing).score;
+      guild.users[recordId] = {
+        ...existing,
+        reputation: { ...emptyReputation(), resetBy: by ?? null },
+        updatedAt: new Date().toISOString(),
+      };
+      save();
+      return before;
+    },
+
+    /** The records with the most reputation, highest first. */
+    topReputation(gid = guildId, { limit = 10, page = 1 } = {}) {
+      return reputationBoard(records(gid), { limit, page });
+    },
+
+    reputationRank(gid = guildId, recordId) {
+      return reputationRank(records(gid), recordId);
     },
 
     /** Returns the deleted record, or null when there was nothing to delete. */

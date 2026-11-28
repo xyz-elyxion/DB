@@ -1,77 +1,94 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MAX_AMOUNT,
-  createReputationStore,
+  emptyReputation,
+  giveReputation,
   normalizeRepNote,
   parseRepAmount,
+  readReputation,
+  reputationBoard,
+  reputationRank,
 } from "../src/lib/reputation.js";
+import { createUserStore } from "../src/lib/users.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 
-function store({ now = () => 1_000_000, ...options } = {}) {
-  return createReputationStore({ guildId: "g1", now, ...options });
+const FIELDS = {
+  firstName: "Ada",
+  lastName: "Lovelace",
+  email: "ada@example.com",
+  username: "ada.l",
+  dateOfBirth: "1990-12-10",
+  class: "10A",
+  gender: "Female",
+  roles: "Student",
+};
+
+function record(overrides = {}) {
+  return {
+    id: "u2",
+    userId: "u2",
+    firstName: "Ada",
+    lastName: "Lovelace",
+    updatedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
 }
 
-test("a member with no reputation reads as zero", () => {
-  const reputation = store();
-  const entry = reputation.get("g1", "u1");
-
-  assert.equal(entry.score, 0);
-  assert.deepEqual(entry.entries, []);
-  assert.equal(reputation.score("g1", "u1"), 0);
-  assert.equal(reputation.count("g1"), 0);
-  assert.equal(reputation.rank("g1", "u1"), null);
+test("a record with no reputation reads as zero, in the same shape", () => {
+  assert.deepEqual(readReputation(record()), emptyReputation());
+  assert.deepEqual(readReputation({ reputation: 4 }).score, 4, "a plain number still reads");
+  assert.equal(readReputation({ reputation: { score: "x" } }).score, 0);
 });
 
-test("/rep points add up and keep the reason", () => {
-  const reputation = store();
+test("reputation points add up and keep the reason", () => {
+  const first = giveReputation(record(), { fromId: "u1", note: "helped me", now: 1_000 });
 
-  const first = reputation.give({ guildId: "g1", userId: "u2", fromId: "u1", note: "helped me" });
   assert.equal(first.before, 0);
-  assert.equal(first.entry.score, 1);
-  assert.equal(first.entry.entries[0].note, "helped me");
-  assert.equal(first.entry.entries[0].fromId, "u1");
+  assert.equal(first.reputation.score, 1);
+  assert.equal(first.reputation.entries[0].note, "helped me");
+  assert.equal(first.reputation.entries[0].fromId, "u1");
 
-  reputation.give({ guildId: "g1", userId: "u2", fromId: "u3" });
-  assert.equal(reputation.score("g1", "u2"), 2);
-  assert.equal(reputation.count("g1"), 1, "one member with reputation");
+  const second = giveReputation(
+    record({ reputation: first.reputation }),
+    { fromId: "u3", now: 2_000 },
+  );
+  assert.equal(second.reputation.score, 2);
+  assert.equal(second.reputation.entries.length, 2);
 });
 
 test("nobody can give themselves reputation", () => {
-  const reputation = store();
   assert.throws(
-    () => reputation.give({ guildId: "g1", userId: "u1", fromId: "u1" }),
+    () => giveReputation(record(), { fromId: "u2" }),
     /can't give reputation to yourself/,
   );
-  assert.equal(reputation.score("g1", "u1"), 0);
 });
 
-test("one point per member per day, but other members can still give", () => {
-  let now = 1_000_000;
-  const reputation = store({ now: () => now });
-  reputation.give({ guildId: "g1", userId: "u2", fromId: "u1" });
-
+test("one point per member per record per day, but other members can still give", () => {
+  const first = giveReputation(record(), { fromId: "u1", now: 1_000 });
   assert.throws(
-    () => reputation.give({ guildId: "g1", userId: "u2", fromId: "u1" }),
+    () => giveReputation(record({ reputation: first.reputation }), { fromId: "u1", now: 2_000 }),
     /already gave reputation/,
   );
-  assert.equal(reputation.score("g1", "u2"), 1);
 
-  reputation.give({ guildId: "g1", userId: "u2", fromId: "u3" });
-  assert.equal(reputation.score("g1", "u2"), 2, "someone else is not on cooldown");
+  const other = giveReputation(record({ reputation: first.reputation }), {
+    fromId: "u3",
+    now: 2_000,
+  });
+  assert.equal(other.reputation.score, 2, "someone else is not on cooldown");
 
-  now += DAY;
-  reputation.give({ guildId: "g1", userId: "u2", fromId: "u1" });
-  assert.equal(reputation.score("g1", "u2"), 3, "the cooldown has passed");
+  const later = giveReputation(record({ reputation: other.reputation }), {
+    fromId: "u1",
+    now: 2_000 + DAY,
+  });
+  assert.equal(later.reputation.score, 3, "the cooldown has passed");
 });
 
 test("amounts and notes are validated", () => {
-  const reputation = store();
-
   assert.equal(parseRepAmount(undefined), 1);
   assert.equal(parseRepAmount("5"), 5);
   assert.equal(parseRepAmount(-3), -3);
@@ -84,27 +101,32 @@ test("amounts and notes are validated", () => {
   assert.equal(normalizeRepNote(""), null);
   assert.throws(() => normalizeRepNote("x".repeat(201)), /at most 200 characters/);
 
-  reputation.give({ guildId: "g1", userId: "u2", fromId: "u1", amount: 4 });
-  assert.equal(reputation.score("g1", "u2"), 4);
+  const result = giveReputation(record(), { fromId: "u1", amount: 4 });
+  assert.equal(result.reputation.score, 4);
 });
 
 test("managers can take points away with a negative amount", () => {
-  const reputation = store();
-  reputation.give({ guildId: "g1", userId: "u2", fromId: "u1", amount: 5 });
-  reputation.give({ guildId: "g1", userId: "u2", fromId: "mod", amount: -2 });
+  const added = giveReputation(record(), { fromId: "u1", amount: 5, now: 1_000 });
+  const taken = giveReputation(record({ reputation: added.reputation }), {
+    fromId: "mod",
+    amount: -2,
+    now: 2_000,
+  });
 
-  assert.equal(reputation.score("g1", "u2"), 3);
-  assert.equal(reputation.get("g1", "u2").entries[0].amount, -2);
+  assert.equal(taken.reputation.score, 3);
+  assert.equal(taken.reputation.entries[0].amount, -2);
 });
 
-test("the leaderboard ranks the highest scores, with pages", () => {
-  const reputation = store();
-  reputation.give({ guildId: "g1", userId: "a", fromId: "x", amount: 3 });
-  reputation.give({ guildId: "g1", userId: "b", fromId: "x", amount: 7 });
-  reputation.give({ guildId: "g1", userId: "c", fromId: "x", amount: 5 });
-  reputation.give({ guildId: "g1", userId: "d", fromId: "x", amount: 1 });
+test("the board ranks the highest scores, with pages", () => {
+  const records = [
+    record({ id: "a", userId: "a", reputation: { score: 3 } }),
+    record({ id: "b", userId: "b", reputation: { score: 7 } }),
+    record({ id: "c", userId: "c", reputation: { score: 5 } }),
+    record({ id: "d", userId: "d", reputation: { score: 1 } }),
+    record({ id: "e", userId: "e" }),
+  ];
 
-  const board = reputation.top("g1", { limit: 2 });
+  const board = reputationBoard(records, { limit: 2 });
   assert.deepEqual(
     board.entries.map((entry) => [entry.userId, entry.score, entry.rank]),
     [
@@ -113,40 +135,83 @@ test("the leaderboard ranks the highest scores, with pages", () => {
     ],
   );
   assert.equal(board.pages, 2);
-  assert.equal(board.total, 4);
+  assert.equal(board.total, 4, "records with zero points stay off the board");
 
-  const second = reputation.top("g1", { limit: 2, page: 2 });
   assert.deepEqual(
-    second.entries.map((entry) => entry.userId),
+    reputationBoard(records, { limit: 2, page: 2 }).entries.map((entry) => entry.userId),
     ["a", "d"],
   );
-  assert.equal(reputation.rank("g1", "c"), 2);
+  assert.equal(reputationRank(records, "c"), 2);
+  assert.equal(reputationRank(records, "e"), null);
 });
 
-test("resetting wipes one member and reports what was cleared", () => {
-  const reputation = store();
-  reputation.give({ guildId: "g1", userId: "u2", fromId: "u1", amount: 3 });
-
-  assert.equal(reputation.reset("g1", "u2", { by: "mod" }), 3);
-  assert.equal(reputation.score("g1", "u2"), 0);
-  assert.deepEqual(reputation.get("g1", "u2").entries, []);
-  assert.equal(reputation.reset("g1", "nobody"), null);
-});
-
-test("reputation survives a restart", () => {
+test("reputation is saved as part of the record, not on the side", () => {
   const folder = mkdtempSync(join(tmpdir(), "rep-"));
-  const file = join(folder, "reputation.json");
+  const file = join(folder, "users.json");
 
   try {
-    const first = createReputationStore({ file, guildId: "g1", now: () => 5_000 });
-    first.give({ guildId: "g1", userId: "u2", fromId: "u1", note: "great work" });
-    first.give({ guildId: "g1", userId: "u3", fromId: "u1", amount: 2 });
+    const users = createUserStore({ file, guildId: "g1" });
+    const ada = users.create({ guildId: "g1", userId: "u2", ...FIELDS });
+    assert.equal(ada.reputation.score, 0, "a new record starts at zero");
 
-    const again = createReputationStore({ file, guildId: "g1", now: () => 5_000 });
-    assert.equal(again.score("g1", "u2"), 1);
-    assert.equal(again.get("g1", "u2").entries[0].note, "great work");
-    assert.equal(again.score("g1", "u3"), 2);
-    assert.equal(again.score("g2", "u2"), 0, "servers are separate");
+    const given = users.addReputation({
+      guildId: "g1",
+      recordId: ada.id,
+      fromId: "u1",
+      note: "great work",
+    });
+    assert.equal(given.record.reputation.score, 1);
+    assert.equal(users.get("g1", "u2").reputation.entries[0].note, "great work");
+
+    const again = createUserStore({ file, guildId: "g1" });
+    assert.equal(again.get("g1", "u2").reputation.score, 1, "it survives a restart");
+    assert.equal(again.reputationRank("g1", "u2"), 1);
+
+    assert.equal(again.resetReputation({ guildId: "g1", recordId: ada.id }), 1);
+    assert.equal(again.get("g1", "u2").reputation.score, 0);
+    assert.equal(again.resetReputation({ guildId: "g1", recordId: "nobody" }), null);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test("reputation only works on records that exist", () => {
+  const users = createUserStore({ guildId: "g1" });
+  assert.throws(
+    () => users.addReputation({ guildId: "g1", recordId: "ghost", fromId: "u1" }),
+    /doesn't exist/,
+  );
+});
+
+test("records saved before reputation existed load with zero", () => {
+  const folder = mkdtempSync(join(tmpdir(), "rep-"));
+  const file = join(folder, "users.json");
+  writeFileSync(
+    file,
+    JSON.stringify({
+      guilds: {
+        g1: {
+          users: {
+            u2: {
+              id: "u2",
+              userId: "u2",
+              firstName: "Ada",
+              lastName: "Lovelace",
+              email: "ada@example.com",
+              username: "ada.l",
+              class: "10A",
+              gender: "Female",
+              roles: [],
+            },
+          },
+        },
+      },
+    }),
+  );
+
+  try {
+    const users = createUserStore({ file, guildId: "g1" });
+    assert.deepEqual(users.get("g1", "u2").reputation, emptyReputation());
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
