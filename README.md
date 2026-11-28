@@ -356,26 +356,16 @@ member | first name | last name | email | username | date of birth | class | gen
 
 ### Reputation
 
-Every record carries its own reputation: points, plus the reasons and who gave
-them, saved in the record itself in `USERS_FILE` (`data/users.json`) and shown on
-the record card as a *Reputation* field. Nobody can give themselves a point, and
-each member can give one point to the same record once a day; a note says why and
-is kept in that record's history. Dave reads it like any other field, so
-`Dave how much reputation does Ada have?` answers from the database.
+Reputation is just a field on the student record, like the class or the roles: a
+whole number of points saved in `USERS_FILE` (`data/users.json`) next to the rest
+of the record and shown on the record card as a *Reputation* field. Staff set it
+when they add a record (`/create-user … reputation: 5`) and change it later with
+`/edit-user reputation: 12`; `reputation: 0` clears it. Dave reads it like any
+other field, so `Dave how much reputation does Ada have?` answers from the
+database.
 
-Because points belong to the record, a member needs one before they can be given
-reputation — `/rep` says so and points at `/create-user`.
-
-| Command | What it does | Needs |
-| --- | --- | --- |
-| `/rep member [note]` | Gives one reputation point; the note is optional | — |
-| `/rep-info [member] [public]` | Score, rank and the last few reasons — yours by default | — |
-| `/rep-leaderboard [page]` | The members with the most reputation | — |
-| `/rep-reset member [confirm]` | Wipes a member's reputation; without `confirm: true` it only reports | Manage Server |
-
-`/rep` is private by default, so a point isn't announced in the channel. The
-cooldown is per giver and target: two people can each give the same member a
-point on the same day.
+There is no separate reputation store, no giving system and no leaderboard — the
+points exist only on the record they belong to.
 
 ## Dave, the database assistant
 

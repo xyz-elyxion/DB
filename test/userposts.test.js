@@ -134,7 +134,7 @@ test("the record card shows every field, the roles section and reputation", () =
     userId: "u1",
     ...FIELDS,
     roles: ["Student", "Prefect"],
-    reputation: { score: 4 },
+    reputation: 4,
     updatedAt: "2026-01-02T00:00:00Z",
   }).toJSON();
   const fields = Object.fromEntries(embed.fields.map((field) => [field.name, field.value]));

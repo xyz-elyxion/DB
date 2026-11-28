@@ -48,6 +48,9 @@ function interactionFor({ commandName, options = {}, can = true, userId = "mod" 
       getBoolean(name) {
         return options[name] ?? null;
       },
+      getInteger(name) {
+        return options[name] ?? null;
+      },
     },
     async reply(payload) {
       replies.push(payload);
@@ -170,6 +173,25 @@ test("/user-info can look someone up by username and post publicly", async () =>
 
   assert.match(interaction.replies[0].embeds[0].toJSON().title, /Ada Lovelace/);
   assert.equal(interaction.replies[0].flags, undefined, "public when asked");
+});
+
+test("reputation is set with /create-user and /edit-user", async () => {
+  const users = store();
+
+  const created = interactionFor({
+    commandName: "create-user",
+    options: { ...OPTIONS, member: { id: "u1" }, reputation: 4 },
+  });
+  await runUserCommand(created, { users });
+  assert.equal(users.get("g1", "u1").reputation, 4);
+
+  const edited = interactionFor({
+    commandName: "edit-user",
+    options: { member: { id: "u1" }, reputation: 0 },
+  });
+  await runUserCommand(edited, { users });
+  assert.equal(users.get("g1", "u1").reputation, 0, "zero clears the points");
+  assert.match(edited.replies[0].content, /Reputation/);
 });
 
 test("/user-info explains when there is no record", async () => {

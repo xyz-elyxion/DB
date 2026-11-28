@@ -1,5 +1,6 @@
 import { KEY_PATTERN } from "./davekeys.js";
 import { UserError, describeError } from "./errors.js";
+import { normalizeReputation } from "./reputation.js";
 
 export const DAVE_NAME = "Dave";
 export const DEFAULT_MODEL = "meta-llama/Llama-3.1-8B-Instruct";
@@ -129,7 +130,7 @@ function formatRecord(record) {
     roles: Array.isArray(record.roles) ? record.roles : [],
     discord: record.userId ? `<@${record.userId}>` : "not linked",
     // Reputation is part of the record, so Dave can answer about it too.
-    reputation_points: record.reputation?.score ?? 0,
+    reputation_points: normalizeReputation(record.reputation),
   };
 }
 

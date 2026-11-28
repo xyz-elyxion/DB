@@ -23,7 +23,6 @@ import { createLiveSync } from "./lib/live.js";
 import { MOD_COMMANDS, postCase, runModerationCommand } from "./lib/moderation.js";
 import { planReplication } from "./lib/planner.js";
 import { previewName } from "./lib/preview.js";
-import { REP_COMMANDS, runRepCommand } from "./lib/repcommands.js";
 import { snapshotGuild } from "./lib/snapshot.js";
 import { USER_COMMANDS, runUserCommand } from "./lib/usercommands.js";
 import { createUserForum, syncExistingUserPosts } from "./lib/userposts.js";
@@ -199,10 +198,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     guild: dataGuild,
   });
   if (handledByUsers) return;
-
-  // Reputation lives on the records, so it belongs to the main server too.
-  const handledByRep = await runRepCommand(interaction, { users, guild: dataGuild });
-  if (handledByRep) return;
 
   const handledByEmbeds = await runEmbedCommand(interaction, {
     guilds: [mainGuild, previewGuild].filter(Boolean),
@@ -456,7 +451,6 @@ client.once(Events.ClientReady, async (readyClient) => {
     ...LEVEL_COMMANDS,
     ...COUNTING_COMMANDS,
     ...USER_COMMANDS,
-    ...REP_COMMANDS,
     ...EMBED_COMMANDS,
     ...DAVE_COMMANDS,
   ];

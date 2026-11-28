@@ -1,4 +1,5 @@
 import { EmbedBuilder } from "discord.js";
+import { normalizeReputation } from "./reputation.js";
 import { ageFromDateOfBirth } from "./users.js";
 
 /**
@@ -16,7 +17,6 @@ export const COLORS = {
   case: 0x5865f2,
   neutral: 0x95a5a6,
   join: 0x5865f2,
-  reputation: 0xf1c40f,
 };
 
 /** "Last updated 2026-11-28 • Mirror Bot v2" — blank details keep just the tag. */
@@ -71,7 +71,7 @@ export function userRecordCard(record, { authorName = null } = {}) {
   const age = birthday ? ageFromDateOfBirth(birthday) : null;
   const roles = Array.isArray(record.roles) ? record.roles : [];
   // Reputation is stored on the record, next to the rest of it.
-  const score = Number(record.reputation?.score ?? record.reputation ?? 0);
+  const score = normalizeReputation(record.reputation);
 
   const name = `${record.firstName ?? ""} ${record.lastName ?? ""}`.trim() || "Unnamed record";
 
@@ -89,7 +89,7 @@ export function userRecordCard(record, { authorName = null } = {}) {
       inline("Discord", record.userId ? `<@${record.userId}>` : "Not assigned"),
       inline("Class", record.class),
       inline("Gender", record.gender),
-      inline("Reputation", score ? `${score} ⭐` : "0 ⭐"),
+      inline("Reputation", `${score} ⭐`),
       block("Roles", roles.length ? roles.map((role) => `\`${role}\``).join(", ") : "None"),
     ],
     footer: `Last updated ${record.updatedAt?.slice?.(0, 10) ?? "unknown"}`,
@@ -171,49 +171,6 @@ export function joinCard({ sourceName }) {
       "Click the button below and approve the Discord prompt. " +
       "I'll add you to the real server and remove you from this preview automatically.",
     footer: "You only need to do this once",
-  });
-}
-
-/** /rep-info */
-export function reputationCard({ userId, score, rank, total, entries = [] }) {
-  const lines = entries.length
-    ? entries
-        .slice(0, 5)
-        .map(
-          (entry) =>
-            `${entry.amount > 0 ? "➕" : "➖"} **${entry.amount > 0 ? "+" : ""}${entry.amount}** ` +
-            `from <@${entry.fromId}>${entry.note ? ` — ${entry.note}` : ""} ` +
-            `(${String(entry.at ?? "").slice(0, 10)})`,
-        )
-    : ["No reputation yet."];
-
-  return styledEmbed({
-    colour: COLORS.reputation,
-    title: `⭐ Reputation of <@${userId}>`,
-    description: lines.join("\n"),
-    fields: [
-      inline("Points", `${score}`),
-      inline("Rank", rank ? `#${rank} of ${total}` : "Unranked"),
-    ],
-    footer: "Reputation lives in the student database",
-  });
-}
-
-/** /rep-leaderboard */
-export function reputationLeaderboardCard({ entries, page, pages, total }) {
-  const medals = ["🥇", "🥈", "🥉"];
-  const lines = entries.map(
-    (entry, index) =>
-      `${medals[index] ?? `**${entry.rank}.**`} ` +
-      `${entry.userId ? `<@${entry.userId}>` : `**${entry.name ?? "unassigned record"}**`} — ` +
-      `**${entry.score}** ⭐`,
-  );
-
-  return styledEmbed({
-    colour: COLORS.reputation,
-    title: `⭐ Reputation leaderboard — page ${page}/${pages}`,
-    description: lines.join("\n"),
-    footer: `${total} member(s) with reputation`,
   });
 }
 

@@ -83,12 +83,20 @@ export const USER_COMMANDS = [
           .setName("member")
           .setDescription("The member this record belongs to (leave blank to keep it unassigned)"),
       ),
-  ).addStringOption((option) =>
-    option
-      .setName("roles")
-      .setDescription("Comma-separated roles, e.g. Student, Prefect")
-      .setMaxLength(320),
-  ),
+  )
+    .addStringOption((option) =>
+      option
+        .setName("roles")
+        .setDescription("Comma-separated roles, e.g. Student, Prefect")
+        .setMaxLength(320),
+    )
+    .addIntegerOption((option) =>
+      option
+        .setName("reputation")
+        .setDescription("Reputation points to start them with (default 0)")
+        .setMinValue(0)
+        .setMaxValue(1_000_000),
+    ),
 
   new SlashCommandBuilder()
     .setName("user-info")
@@ -136,6 +144,13 @@ export const USER_COMMANDS = [
     )
     .addStringOption((option) =>
       option.setName("gender").setDescription("New gender").setMaxLength(32),
+    )
+    .addIntegerOption((option) =>
+      option
+        .setName("reputation")
+        .setDescription("Set their reputation points (0 clears them)")
+        .setMinValue(0)
+        .setMaxValue(1_000_000),
     )
     .addStringOption((option) =>
       option.setName("roles").setDescription("Replace the roles list").setMaxLength(320),
@@ -196,8 +211,9 @@ export const USER_COMMANDS = [
     ),
 ];
 
+const EXTRA_LABELS = { reputation: "Reputation", roles: "Roles" };
 const fieldLabel = (field) =>
-  PROFILE_FIELDS.find(([, key]) => key === field)?.[2] ?? "Roles";
+  PROFILE_FIELDS.find(([, key]) => key === field)?.[2] ?? EXTRA_LABELS[field] ?? field;
 
 /** Find the record a command points at: by member, or by username when unassigned. */
 function findRecord(users, guildId, { member = null, username = null } = {}) {
@@ -231,6 +247,7 @@ const HANDLERS = {
       class: options.getString("class", true),
       gender: options.getString("gender", true),
       roles: options.getString("roles") ?? undefined,
+      reputation: options.getInteger?.("reputation") ?? 0,
     });
 
     const threadId = await syncUserPost({ forum, users, guild, record });
@@ -280,6 +297,9 @@ const HANDLERS = {
       const value = options.getString(optionName);
       if (value !== null && value !== undefined) patch[field] = value;
     }
+
+    const reputation = options.getInteger?.("reputation");
+    if (reputation !== null && reputation !== undefined) patch.reputation = reputation;
 
     if (options.getBoolean("clear-roles")) patch.roles = "";
     else if (options.getString("roles")) patch.roles = options.getString("roles");
