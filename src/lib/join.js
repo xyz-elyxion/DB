@@ -5,11 +5,11 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
-  EmbedBuilder,
   REST,
   Routes,
 } from "discord.js";
 
+import { joinCard } from "./embeds.js";
 import { UserError } from "./errors.js";
 
 const API = "https://discord.com/api/v10";
@@ -237,15 +237,7 @@ export async function ensureJoinChannel({ guild, client, sourceName, links }) {
     })
     .catch(() => {});
 
-  const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle(`Join ${sourceName}`)
-    .setDescription(
-      `This server is a read-only preview of **${sourceName}**.\n\n` +
-        "Click the button below and approve the Discord prompt. " +
-        "I'll add you to the real server and remove you from this preview automatically.",
-    )
-    .setFooter({ text: "You only need to do this once" });
+  const embed = joinCard({ sourceName });
 
   const buttons = links.slice(0, MAX_BUTTONS).map((link, index) =>
     new ButtonBuilder()

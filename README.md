@@ -37,6 +37,7 @@ commands, which the bot registers in the main server when it starts.
    XP_MAX_PER_MESSAGE=25
    XP_COOLDOWN_SECONDS=60
    COUNTING_FILE=data/counting.json     # optional: counting channel state
+   REPUTATION_FILE=data/reputation.json # optional: /rep reputation
    ```
 
 4. **Run it**:
@@ -354,6 +355,26 @@ member | first name | last name | email | username | date of birth | class | gen
 - Up to 100 records per run; run it again for the next batch. The reply is
   private, and long lists of skipped lines are shortened to fit Discord's limit.
 
+### Reputation
+
+Members can be given reputation points, stored next to the records in
+`REPUTATION_FILE` (`data/reputation.json`) and shown on their record card as a
+*Reputation* field. Nobody can give themselves a point, and each member can give
+one point to the same person once a day; a note says why and is kept in their
+history. Dave knows the scores too, so `Dave how much reputation does Ada have?`
+answers from the database.
+
+| Command | What it does | Needs |
+| --- | --- | --- |
+| `/rep member [note]` | Gives one reputation point; the note is optional | — |
+| `/rep-info [member] [public]` | Score, rank and the last few reasons — yours by default | — |
+| `/rep-leaderboard [page]` | The members with the most reputation | — |
+| `/rep-reset member [confirm]` | Wipes a member's reputation; without `confirm: true` it only reports | Manage Server |
+
+`/rep` is private by default, so a point isn't announced in the channel. The
+cooldown is per giver and target: two people can each give the same member a
+point on the same day.
+
 ## Dave, the database assistant
 
 Start a message with **Dave** and the bot answers from the student database —
@@ -403,6 +424,26 @@ and nowhere else: in any other server, or in a direct message, the bot replies
 that its commands only work there. Records, XP and the counting chain belong to
 the main server, so a command run from the preview changes the same database and
 levels; moderation acts on the server it was run in.
+
+## Embeds
+
+Every embed the bot posts is drawn in one style: an accent colour per kind, a
+leading emoji in the title, and `Mirror Bot v2` at the end of the footer. That tag
+is how the bot tells a new embed from an old one.
+
+Messages posted before this style existed keep their old look until you run
+`/migrate-embeds` (Manage Server). It reads the bot's own messages in **both**
+servers — text and announcement channels, plus active and archived forum posts —
+and rewrites the old record cards, rank cards, leaderboards, level settings,
+counting stats, moderation cases, deleted-record notices and the #join-server
+card. Other bots' embeds and mirrored messages from people are left exactly as
+they are, and running it again changes nothing, so it is safe to repeat.
+
+- `dry-run: true` reports how many would change without editing anything.
+- `limit` is how many recent messages per channel to read (default 100, up to
+  500). Old messages further back need a second run with a bigger limit.
+- The reply lists what was rewritten, by kind, and any messages that failed
+  (usually a missing *Manage Messages* permission).
 
 ## What is mirrored
 

@@ -129,20 +129,25 @@ test("forum post titles carry the name and are shortened to fit", () => {
   assert.equal(long.length, 100);
 });
 
-test("the record card shows every field and the roles section", () => {
-  const embed = userRecordEmbed({
-    userId: "u1",
-    ...FIELDS,
-    roles: ["Student", "Prefect"],
-    updatedAt: "2026-01-02T00:00:00Z",
-  }).toJSON();
+test("the record card shows every field, the roles section and reputation", () => {
+  const embed = userRecordEmbed(
+    {
+      userId: "u1",
+      ...FIELDS,
+      roles: ["Student", "Prefect"],
+      updatedAt: "2026-01-02T00:00:00Z",
+    },
+    { reputation: { score: 4 } },
+  ).toJSON();
   const fields = Object.fromEntries(embed.fields.map((field) => [field.name, field.value]));
 
-  assert.equal(fields["First name"], "Ada");
+  assert.equal(embed.title, "👤 Ada Lovelace");
   assert.equal(fields.Email, "ada@example.com");
   assert.equal(fields.Roles, "`Student`, `Prefect`");
+  assert.equal(fields.Reputation, "4 ⭐");
   assert.match(fields["Date of birth"], /1990-12-10/);
   assert.match(embed.footer.text, /2026-01-02/);
+  assert.match(embed.footer.text, /Mirror Bot v2/, "the card is in the current style");
 });
 
 test("a record without a birthday or member says so on the card", () => {
@@ -173,7 +178,7 @@ test("creating a record opens a forum post and remembers it", async () => {
   assert.equal(threadId, "t1");
   assert.equal(posts.length, 1);
   assert.equal(posts[0].thread.name, "Ada Lovelace (ada.l)");
-  assert.equal(posts[0].message.embeds[0].toJSON().fields[0].value, "Ada");
+  assert.equal(posts[0].message.embeds[0].toJSON().title, "👤 Ada Lovelace");
   assert.equal(users.get("g1", "u1").forumThreadId, "t1", "the thread id is stored");
 });
 
@@ -236,7 +241,7 @@ test("deleting a record marks the post and archives it", async () => {
 
   assert.equal(posts[0].thread.archived, true);
   assert.equal(posts[0].thread.locked, true);
-  assert.equal(posts[0].message.embeds[0].toJSON().title, "Record deleted");
+  assert.equal(posts[0].message.embeds[0].toJSON().title, "🗑️ Record deleted");
 });
 
 test("the commands put records in the forum and keep it current", async () => {

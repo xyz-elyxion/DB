@@ -75,9 +75,10 @@ test("/rank shows level, XP, messages and rank", async () => {
   const [reply] = interaction.replies;
   assert.equal(reply.flags, 64, "private by default");
   const embed = reply.embeds[0].toJSON();
-  assert.equal(embed.title, "Level 3");
+  assert.equal(embed.title, "📈 Level 3");
   assert.match(embed.fields.find((field) => field.name === "Rank").value, /#2 of 2/);
-  assert.match(embed.fields.at(-1).value, /XP/);
+  assert.match(embed.description, /XP/, "the progress bar sits under the title");
+  assert.match(embed.footer.text, /Mirror Bot v2/);
 });
 
 test("/rank public shows the card to the channel", async () => {

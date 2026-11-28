@@ -1,41 +1,12 @@
-import { EmbedBuilder } from "discord.js";
+import { deletedRecordCard, userRecordCard } from "./embeds.js";
 import { UserError } from "./errors.js";
-import { ageFromDateOfBirth } from "./users.js";
 
-const COLOR = 0xeb459e;
-const DELETED_COLOR = 0x95a5a6;
 const MAX_THREAD_NAME = 100;
 const REASON = "User database";
 
 /** The record card, shared by /user-info and the forum post. */
-export function userRecordEmbed(record, { authorName = null } = {}) {
-  const birthday = record.dateOfBirth || null;
-  const age = birthday ? ageFromDateOfBirth(birthday) : null;
-  const roles = Array.isArray(record.roles) ? record.roles : [];
-
-  return new EmbedBuilder()
-    .setColor(COLOR)
-    .setAuthor({ name: authorName ?? record.username })
-    .setTitle("User record")
-    .addFields(
-      { name: "First name", value: record.firstName, inline: true },
-      { name: "Last name", value: record.lastName, inline: true },
-      { name: "Username", value: record.username, inline: true },
-      { name: "Email", value: record.email, inline: true },
-      {
-        name: "Date of birth",
-        value: birthday ? (age === null ? birthday : `${birthday} (age ${age})`) : "Not set",
-        inline: true,
-      },
-      { name: "Class", value: record.class, inline: true },
-      { name: "Gender", value: record.gender, inline: true },
-      { name: "Discord", value: record.userId ? `<@${record.userId}>` : "Not assigned", inline: true },
-      {
-        name: "Roles",
-        value: roles.length ? roles.map((role) => `\`${role}\``).join(", ") : "None",
-      },
-    )
-    .setFooter({ text: `Last updated ${record.updatedAt?.slice(0, 10) ?? "unknown"}` });
+export function userRecordEmbed(record, { authorName = null, reputation = null } = {}) {
+  return userRecordCard(record, { authorName, reputation });
 }
 
 /** Forum post titles stop at 100 characters, so long names are shortened. */
@@ -45,13 +16,7 @@ export function forumThreadName(record) {
 }
 
 function deletedEmbed(record) {
-  return new EmbedBuilder()
-    .setColor(DELETED_COLOR)
-    .setTitle("Record deleted")
-    .setDescription(
-      `**${record.firstName} ${record.lastName}** (\`${record.username}\`) is no longer in the database.`,
-    )
-    .setFooter({ text: `Deleted ${new Date().toISOString().slice(0, 10)}` });
+  return deletedRecordCard(record);
 }
 
 /**
@@ -59,7 +24,7 @@ function deletedEmbed(record) {
  * editing the record renames it and rewrites the card; deleting the record turns
  * the card into a notice and archives the post, so nothing is lost.
  */
-export function createUserForum({ channelId = null, reason = REASON, delayMs = 0 } = {}) {
+export function createUserForum({ channelId = null, reason = REASON, delayMs = 0, reputation = null } = {}) {
   const warned = new Set();
   let lastCreateAt = 0;
 
@@ -89,6 +54,17 @@ export function createUserForum({ channelId = null, reason = REASON, delayMs = 0
     if (cached) return cached;
     if (typeof guild.channels?.fetch !== "function") return null;
     return (await guild.channels.fetch(threadId).catch(() => null)) ?? null;
+  }
+
+  /** The member's reputation, when they have a record and the store is wired up. */
+  function reputationFor(guild, record) {
+    if (!reputation || !record?.userId || !guild?.id) return null;
+    try {
+      return reputation.get(guild.id, record.userId);
+    } catch (error) {
+      console.error("Could not read reputation for a user forum post:", error.message);
+      return null;
+    }
   }
 
   async function starterMessage(thread) {
@@ -133,7 +109,7 @@ export function createUserForum({ channelId = null, reason = REASON, delayMs = 0
         const message = await starterMessage(existing);
         if (typeof message?.edit === "function") {
           await message
-            .edit({ embeds: [userRecordEmbed(record)] })
+            .edit({ embeds: [userRecordEmbed(record, { reputation: reputationFor(guild, record) })] })
             .catch((error) => console.error("Could not update a user forum post:", error.message));
         }
         return existing.id;
@@ -142,7 +118,7 @@ export function createUserForum({ channelId = null, reason = REASON, delayMs = 0
       await waitForTurn();
       const thread = await forum.threads.create({
         name: forumThreadName(record),
-        message: { embeds: [userRecordEmbed(record)] },
+        message: { embeds: [userRecordEmbed(record, { reputation: reputationFor(guild, record) })] },
         reason,
       });
       return thread?.id ?? null;

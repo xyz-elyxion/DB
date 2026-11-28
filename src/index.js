@@ -7,6 +7,7 @@ import { createCountingStore } from "./lib/counting.js";
 import { createDaveAgent, daveEndpointHost } from "./lib/dave.js";
 import { DAVE_COMMANDS, runDaveCommand } from "./lib/davecommands.js";
 import { createDaveKeyStore } from "./lib/davekeys.js";
+import { EMBED_COMMANDS, runEmbedCommand } from "./lib/embedcommands.js";
 import { UserError } from "./lib/errors.js";
 import { createInviteGuard } from "./lib/invites.js";
 import { createJoinBlockStore } from "./lib/joinblocks.js";
@@ -22,6 +23,8 @@ import { createLiveSync } from "./lib/live.js";
 import { MOD_COMMANDS, postCase, runModerationCommand } from "./lib/moderation.js";
 import { planReplication } from "./lib/planner.js";
 import { previewName } from "./lib/preview.js";
+import { REP_COMMANDS, runRepCommand } from "./lib/repcommands.js";
+import { createReputationStore } from "./lib/reputation.js";
 import { snapshotGuild } from "./lib/snapshot.js";
 import { USER_COMMANDS, runUserCommand } from "./lib/usercommands.js";
 import { createUserForum, syncExistingUserPosts } from "./lib/userposts.js";
@@ -93,6 +96,9 @@ const counting = createCountingStore({ file: config.countingFile, guildId: confi
 // Member records: names, emails, birthdays and the roles section, on disk.
 const users = createUserStore({ file: config.usersFile });
 
+// Reputation for those members, given with /rep and shown on their record.
+const reputation = createReputationStore({ file: config.reputationFile });
+
 // One-time keys let someone outside the servers ask Dave (/dave-key makes them).
 const daveKeys = createDaveKeyStore({ file: config.daveKeysFile });
 
@@ -102,6 +108,7 @@ const dave = createDaveAgent({
   model: config.daveModel,
   endpoint: config.daveApiUrl,
   users,
+  reputation,
   keys: daveKeys,
   sourceId: config.sourceId,
   guildIds: [config.sourceId, config.targetId],
@@ -111,12 +118,18 @@ const dave = createDaveAgent({
 const userForum = createUserForum({
   channelId: config.usersForumId,
   delayMs: config.forumPostDelayMs,
+  reputation,
 });
 
 // Says where records live, so a wrong or unwritable path is obvious at a glance.
 console.log(
   `User records: ${users.count(config.sourceId)} loaded from ${config.usersFile} ` +
     `(forum ${config.usersForumId ?? "off"}, ${config.forumPostDelayMs} ms between new posts).`,
+);
+
+console.log(
+  `Reputation: ${reputation.count(config.sourceId)} member(s) loaded from ` +
+    `${config.reputationFile}.`,
 );
 
 console.log(
@@ -127,8 +140,9 @@ console.log(
         "student database.",
 );
 
-// The preview guild, once the bot has connected.
+// The two guilds, once the bot has connected.
 let previewGuild = null;
+let mainGuild = null;
 
 if (config.enableMemberEvents) {
   client.on(Events.GuildMemberAdd, async (member) => {
@@ -192,9 +206,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
   const handledByUsers = await runUserCommand(interaction, {
     users,
     forum: userForum,
+    reputation,
     guild: dataGuild,
   });
   if (handledByUsers) return;
+
+  // Reputation belongs to the main server's database, like the records.
+  const handledByRep = await runRepCommand(interaction, { reputation, guild: dataGuild });
+  if (handledByRep) return;
+
+  const handledByEmbeds = await runEmbedCommand(interaction, {
+    guilds: [mainGuild, previewGuild].filter(Boolean),
+    botId: client.user?.id ?? null,
+  });
+  if (handledByEmbeds) return;
 
   const handledByDave = await runDaveCommand(interaction, { keys: daveKeys });
   if (handledByDave) return;
@@ -433,6 +458,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     });
   }
 
+  mainGuild = source;
   previewGuild = target;
   await inviteGuard.prime(target);
 
@@ -441,6 +467,8 @@ client.once(Events.ClientReady, async (readyClient) => {
     ...LEVEL_COMMANDS,
     ...COUNTING_COMMANDS,
     ...USER_COMMANDS,
+    ...REP_COMMANDS,
+    ...EMBED_COMMANDS,
     ...DAVE_COMMANDS,
   ];
   const payload = commands.map((command) => command.toJSON());

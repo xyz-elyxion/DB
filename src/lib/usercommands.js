@@ -249,7 +249,7 @@ const HANDLERS = {
     };
   },
 
-  async "user-info"({ interaction, guild, options, users }) {
+  async "user-info"({ interaction, guild, options, users, reputation }) {
     const member = options.getUser("member");
     const username = options.getString("username");
 
@@ -264,8 +264,15 @@ const HANDLERS = {
       throw new UserError("You don't have a record yet — staff can add one with `/create-user`.");
     }
 
+    const rep = record.userId && reputation ? reputation.get(guild.id, record.userId) : null;
+
     return {
-      embeds: [userRecordEmbed(record, { authorName: member?.username ?? record.username })],
+      embeds: [
+        userRecordEmbed(record, {
+          authorName: member?.username ?? record.username,
+          reputation: rep,
+        }),
+      ],
     };
   },
 

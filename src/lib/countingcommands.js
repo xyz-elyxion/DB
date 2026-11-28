@@ -1,13 +1,11 @@
 import {
   ChannelType,
-  EmbedBuilder,
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from "discord.js";
+import { COLORS, panelCard } from "./embeds.js";
 import { UserError, describeError } from "./errors.js";
-
-const COLOR = 0x57f287;
 
 /** Setup and resets need Manage Server; /counting-stats needs nothing. */
 const GUARDS = {
@@ -81,10 +79,10 @@ const HANDLERS = {
       return { message: "Counting isn't set up yet — a manager can run `/counting-setup`." };
     }
 
-    const embed = new EmbedBuilder()
-      .setColor(COLOR)
-      .setTitle("Counting")
-      .addFields(
+    const embed = panelCard({
+      colour: COLORS.counting,
+      title: "🔢 Counting",
+      fields: [
         { name: "Channel", value: `<#${settings.channelId}>`, inline: true },
         { name: "Current", value: number(settings.count), inline: true },
         { name: "Next number", value: number(settings.next), inline: true },
@@ -94,8 +92,9 @@ const HANDLERS = {
           value: settings.lastUserId ? `<@${settings.lastUserId}>` : "Nobody yet",
           inline: true,
         },
-      )
-      .setFooter({ text: "One number per message, never the same person twice in a row" });
+      ],
+      footer: "One number per message, never the same person twice in a row",
+    });
 
     return { embeds: [embed] };
   },

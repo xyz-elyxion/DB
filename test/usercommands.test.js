@@ -146,11 +146,10 @@ test("/user-info shows every field and defaults to the caller", async () => {
   const embed = interaction.replies[0].embeds[0].toJSON();
   const fields = Object.fromEntries(embed.fields.map((field) => [field.name, field.value]));
 
-  assert.equal(embed.title, "User record");
-  assert.equal(fields["First name"], "Ada");
-  assert.equal(fields["Last name"], "Lovelace");
-  assert.equal(fields.Username, "ada.l");
+  assert.equal(embed.title, "👤 Ada Lovelace");
+  assert.match(embed.description, /ada\.l/, "the database username under the title");
   assert.equal(fields.Email, "ada@example.com");
+  assert.equal(fields.Reputation, "0 ⭐", "reputation is part of the record card");
   assert.match(fields["Date of birth"], /1990-12-10/);
   assert.equal(fields.Class, "10A");
   assert.equal(fields.Gender, "Female");
@@ -169,7 +168,7 @@ test("/user-info can look someone up by username and post publicly", async () =>
   });
   await runUserCommand(interaction, { users });
 
-  assert.equal(interaction.replies[0].embeds[0].toJSON().fields[0].value, "Ada");
+  assert.match(interaction.replies[0].embeds[0].toJSON().title, /Ada Lovelace/);
   assert.equal(interaction.replies[0].flags, undefined, "public when asked");
 });
 

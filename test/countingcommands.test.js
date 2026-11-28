@@ -111,7 +111,8 @@ test("/counting-stats shows the count, next number, best and last counter", asyn
   await runCountingCommand(interaction, { counting: store });
 
   const embed = interaction.replies[0].embeds[0].toJSON();
-  assert.equal(embed.title, "Counting");
+  assert.equal(embed.title, "🔢 Counting");
+  assert.match(embed.footer.text, /Mirror Bot v2/, "posted in the current embed style");
   const fields = Object.fromEntries(embed.fields.map((field) => [field.name, field.value]));
   assert.equal(fields.Channel, "<#c1>");
   assert.equal(fields.Current, "1");

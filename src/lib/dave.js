@@ -117,7 +117,7 @@ export function selectRecords(records, question, { limit = MAX_CONTEXT_RECORDS }
     .map((entry) => entry.record);
 }
 
-function formatRecord(record) {
+function formatRecord(record, reputationScore = null) {
   return {
     first_name: record.firstName,
     last_name: record.lastName,
@@ -128,6 +128,8 @@ function formatRecord(record) {
     gender: record.gender,
     roles: Array.isArray(record.roles) ? record.roles : [],
     discord: record.userId ? `<@${record.userId}>` : "not linked",
+    // Only sent when the caller looked it up, so old prompts are unchanged.
+    ...(reputationScore === null ? {} : { reputation_points: reputationScore }),
   };
 }
 
@@ -139,6 +141,7 @@ export function buildDaveContext({
   classes = [],
   asker = null,
   serverName = null,
+  scores = null,
 } = {}) {
   const lines = [`There are ${total} student record(s) in the database.`];
 
@@ -146,7 +149,9 @@ export function buildDaveContext({
 
   if (records.length > 0) {
     lines.push("RECORDS that may answer the question:");
-    for (const record of records) lines.push(JSON.stringify(formatRecord(record)));
+    for (const record of records) {
+      lines.push(JSON.stringify(formatRecord(record, scores?.get?.(record.id) ?? null)));
+    }
   } else {
     lines.push("No record matched the question, so there is nothing to quote.");
   }
@@ -171,6 +176,7 @@ export async function askDave({
   classes = [],
   asker = null,
   serverName = null,
+  scores = null,
   fetchImpl = fetch,
   timeoutMs = 30_000,
 } = {}) {
@@ -190,6 +196,7 @@ export async function askDave({
     classes,
     asker,
     serverName,
+    scores,
   });
 
   const host = daveEndpointHost(endpoint);
@@ -290,6 +297,7 @@ export function createDaveAgent({
   model = DEFAULT_MODEL,
   endpoint = DEFAULT_ENDPOINT,
   users = null,
+  reputation = null,
   keys = null,
   sourceId = null,
   guildIds = [],
@@ -363,6 +371,15 @@ export function createDaveAgent({
           endpoint,
           question: parsed.question,
           records: selectRecords(records, parsed.question),
+          // Reputation is part of the database, so Dave can answer about it too.
+          scores: reputation
+            ? new Map(
+                records.map((record) => [
+                  record.id,
+                  record.userId ? reputation.score(sourceId, record.userId) : 0,
+                ]),
+              )
+            : null,
           total: records.length,
           classes: [...new Set(records.map((record) => record.class).filter(Boolean))].sort(),
           asker: message.author?.username ?? null,

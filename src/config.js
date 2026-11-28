@@ -72,6 +72,8 @@ export const config = {
   levelsFile: process.env.LEVELS_FILE?.trim() || "data/levels.json",
   countingFile: process.env.COUNTING_FILE?.trim() || "data/counting.json",
   usersFile: process.env.USERS_FILE?.trim() || "data/users.json",
+  // Reputation for the members in that database, given with /rep.
+  reputationFile: process.env.REPUTATION_FILE?.trim() || "data/reputation.json",
   usersForumId: readChannelId(process.env.USERS_FORUM_CHANNEL_ID, DEFAULT_USER_FORUM_ID),
   // Dave, the student-database assistant. Every answer he gives is written by an
   // OpenAI-compatible chat model; without a key he says he isn't connected

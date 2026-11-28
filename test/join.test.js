@@ -110,5 +110,5 @@ test("the join channel gets one button per domain and stays read-only", async ()
   assert.deepEqual(edits[0].id, { id: "guild-1" }, "the @everyone role is edited");
   assert.equal(edits[0].permissions.SendMessages, false);
   assert.equal(edits[0].permissions.ViewChannel, true);
-  assert.equal(sent[0].embeds[0].data.title, "Join Main");
+  assert.equal(sent[0].embeds[0].data.title, "🚪 Join Main");
 });

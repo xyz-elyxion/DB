@@ -1,14 +1,12 @@
 import {
   ChannelType,
-  EmbedBuilder,
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from "discord.js";
+import { COLORS, leaderboardCard, panelCard, rankCard } from "./embeds.js";
 import { UserError, describeError } from "./errors.js";
 import { MAX_LEVEL, progressBar } from "./levels.js";
-
-const COLOR = 0x5865f2;
 
 /** Management commands need Manage Server; /rank and /leaderboard need nothing. */
 const GUARDS = {
@@ -134,20 +132,15 @@ const HANDLERS = {
     const position = levels.rank(guild.id, user.id);
     const name = user.tag ?? user.username ?? user.id;
 
-    const embed = new EmbedBuilder()
-      .setColor(COLOR)
-      .setAuthor({ name })
-      .setTitle(`Level ${stats.level}`)
-      .addFields(
-        { name: "Rank", value: position ? `#${position} of ${levels.count(guild.id)}` : "Unranked", inline: true },
-        { name: "Total XP", value: number(stats.xp), inline: true },
-        { name: "Messages", value: number(stats.messages), inline: true },
-        {
-          name: `Progress to level ${stats.level + 1}`,
-          value: `${progressBar(stats.percent)}  ${number(stats.into)} / ${number(stats.need)} XP`,
-        },
-      )
-      .setFooter({ text: `${stats.percent}% of the way to the next level` });
+    const embed = rankCard({
+      name,
+      level: stats.level,
+      rank: position ? `#${position} of ${levels.count(guild.id)}` : "Unranked",
+      xp: number(stats.xp),
+      messages: number(stats.messages),
+      progress: `${progressBar(stats.percent)}  ${number(stats.into)} / ${number(stats.need)} XP`,
+      footer: `${stats.percent}% of the way to the next level`,
+    });
 
     return { embeds: [embed] };
   },
@@ -165,11 +158,12 @@ const HANDLERS = {
         `level ${entry.level}, ${number(entry.xp)} XP`,
     );
 
-    const embed = new EmbedBuilder()
-      .setColor(COLOR)
-      .setTitle(`Leaderboard — page ${board.page}/${board.pages}`)
-      .setDescription(lines.join("\n"))
-      .setFooter({ text: `${board.total} member(s) ranked` });
+    const embed = leaderboardCard({
+      page: board.page,
+      pages: board.pages,
+      lines: lines.join("\n"),
+      footer: `${board.total} member(s) ranked`,
+    });
 
     return { embeds: [embed] };
   },
@@ -223,10 +217,10 @@ const HANDLERS = {
     const settings = levels.settings(guild.id);
     const rewards = Object.entries(settings.roleRewards).sort(([a], [b]) => Number(a) - Number(b));
 
-    const embed = new EmbedBuilder()
-      .setColor(COLOR)
-      .setTitle("Level settings")
-      .addFields(
+    const embed = panelCard({
+      colour: COLORS.rank,
+      title: "⚙️ Level settings",
+      fields: [
         { name: "Levelling", value: settings.enabled ? "On" : "Off", inline: true },
         {
           name: "Level-up messages",
@@ -249,7 +243,8 @@ const HANDLERS = {
             ? rewards.map(([level, roleId]) => `Level ${level} → <@&${roleId}>`).join("\n")
             : "None",
         },
-      );
+      ],
+    });
 
     return { embeds: [embed] };
   },

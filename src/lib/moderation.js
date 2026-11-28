@@ -1,10 +1,10 @@
 import {
   ChannelType,
-  EmbedBuilder,
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from "discord.js";
+import { caseCard } from "./embeds.js";
 import { MAX_TIMEOUT_MS, formatDuration, parseDuration } from "./duration.js";
 import { parseInviteCode } from "./invites.js";
 import { UserError, describeError } from "./errors.js";
@@ -298,25 +298,7 @@ async function fetchMember(guild, id) {
 }
 
 export function caseEmbed(record) {
-  const embed = new EmbedBuilder()
-    .setColor(COLORS[record.type] ?? 0x5865f2)
-    .setTitle(`Case #${record.id} — ${record.type}`)
-    .setTimestamp(record.at ? new Date(record.at) : new Date())
-    .setFooter({ text: `Case #${record.id}` });
-
-  const target = record.targetId
-    ? `<@${record.targetId}>`
-    : record.channelId
-      ? `<#${record.channelId}>`
-      : "—";
-
-  embed.addFields(
-    { name: "Target", value: target, inline: true },
-    { name: "Moderator", value: record.moderatorId ? `<@${record.moderatorId}>` : "—", inline: true },
-    { name: "Reason", value: record.reason || "No reason given" },
-  );
-
-  return embed;
+  return caseCard({ record, colour: COLORS[record.type] ?? 0x5865f2 });
 }
 
 function caseText(record) {
